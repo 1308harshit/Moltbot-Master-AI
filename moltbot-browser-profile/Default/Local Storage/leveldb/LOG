@@ -1,0 +1,6 @@
+2026/02/02-23:09:38.114 53f8 Reusing MANIFEST D:\Freelancing\02-02-2026_MoltBot_Browser\moltbot-browser-profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/02/02-23:09:38.120 53f8 Recovering log #3
+2026/02/02-23:09:38.122 53f8 Reusing old log D:\Freelancing\02-02-2026_MoltBot_Browser\moltbot-browser-profile\Default\Local Storage\leveldb/000003.log 
+2026/02/02-23:09:50.137 54cc Level-0 table #5: started
+2026/02/02-23:09:50.146 54cc Level-0 table #5: 7488 bytes OK
+2026/02/02-23:09:50.149 54cc Delete type=0 #3

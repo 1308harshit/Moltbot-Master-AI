@@ -1,0 +1,23 @@
+{
+  "name": "02-02-2026_moltbot_browser",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "moltbot": "node moltbot.js",
+    "launch-browser": "node launch-browser.js",
+    "server": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.72.1",
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "openai": "^6.17.0",
+    "playwright": "^1.58.1"
+  }
+}
