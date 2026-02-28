@@ -6,6 +6,58 @@ import { wsClient } from './wsClient';
 import { pushToCoda } from './coda';
 import { config, promptPlaceholders } from './config';
 
+/** Simple delay helper */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Check if an error is transient and worth retrying */
+function isRetryableError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    msg.includes('Timeout waiting for run') ||
+    msg.includes("Can't reach the openclaw") ||
+    msg.includes('browser control service') ||
+    msg.includes('timed out') ||
+    msg.includes('WebSocket closed')
+  );
+}
+
+/** Check if MoltBot's response indicates ANY failure that requires session reset + boot retry.
+ *  Covers: relay disconnected, ARIA/DOM inaccessible, browser control service down, timeouts. */
+function isMoltBotFailureResponse(output: string): boolean {
+  const lower = output.toLowerCase();
+  return (
+    // Relay not connected
+    lower.includes('no tab connected') ||
+    lower.includes('no tab attached') ||
+    lower.includes("can't open") ||
+    lower.includes('cannot open') ||
+    (lower.includes('relay') && lower.includes('not connected')) ||
+    lower.includes('attach a chrome tab') ||
+    lower.includes('attach the tab') ||
+    // Browser control service unreachable / timing out
+    lower.includes("can't reach") ||
+    lower.includes('cannot reach') ||
+    lower.includes('openclaw browser control service') ||
+    lower.includes('timing out') ||
+    lower.includes('timed out') ||
+    // UI interaction failures (ARIA/DOM issues)
+    lower.includes('aria snapshot') ||
+    lower.includes('dom queries return zero') ||
+    lower.includes("can't access") ||
+    lower.includes("can't interact") ||
+    lower.includes("can't reliably click") ||
+    lower.includes("can't complete that step") ||
+    lower.includes('zero inputs') ||
+    lower.includes('image-only') ||
+    // MoltBot asking user to do it manually
+    lower.includes('what i need from you') ||
+    lower.includes('please restart') ||
+    lower.includes('please do this')
+  );
+}
+
 // Event emitter for real-time frontend notifications
 export const workflowEvents = new EventEmitter();
 
@@ -22,10 +74,26 @@ function emit(event: WorkflowEvent): void {
 /**
  * Build the full prompt for a step by injecting the placeholder + context block.
  */
-function buildPrompt(placeholderKey: string, contextBlock: string, snapshot?: Record<string, string>): string {
+function buildPrompt(placeholderKey: string, contextBlock: string, snapshot?: Record<string, string> | Map<string, string>): string {
   const source = snapshot || promptPlaceholders;
-  const template = source[placeholderKey] || `{${placeholderKey}}`;
-  return `${template}\n\n${contextBlock}`;
+  
+  let template = '';
+  if (source instanceof Map) {
+    template = source.get(placeholderKey) || `[Missing prompt for ${placeholderKey}]`;
+  } else {
+    template = (source as Record<string, string>)[placeholderKey] || `[Missing prompt for ${placeholderKey}]`;
+  }
+  
+  if (template.includes('{{CONTEXT_BLOCK}}')) {
+    return template.replace('{{CONTEXT_BLOCK}}', contextBlock);
+  }
+  
+  // If no context placeholder, just append it if we have context (except for step0)
+  if (contextBlock && placeholderKey !== 'default_prompt_boot') {
+    return `${template}\n\n${contextBlock}`;
+  }
+  
+  return template;
 }
 
 /**
@@ -33,11 +101,17 @@ function buildPrompt(placeholderKey: string, contextBlock: string, snapshot?: Re
  */
 function validateMarker(output: string, step: string): boolean {
   const markers: Record<string, string> = {
+    step0: '=== END OF STEP 0 ===',
     step1: '=== END OF STEP 1 ===',
     step2a: '=== END OF STEP 2A ===',
     step2b: '=== END OF STEP 2B ===',
     step2c: '=== END OF STEP 2C ===',
     step3: '=== END OF STEP 3 ===',
+    step4: '=== END OF STEP 4 ===',
+    step5a: '=== END OF STEP 5A ===',
+    step5b: '=== END OF STEP 5B ===',
+    step5c: '=== END OF STEP 5C ===',
+    step6: '=== END OF STEP 6 ===',
   };
   const marker = markers[step] || `=== END OF ${step.toUpperCase()} ===`;
   return output.includes(marker);
@@ -49,7 +123,7 @@ function validateMarker(output: string, step: string): boolean {
 export function canRunStep(workflow: IWorkflow, step: string): { allowed: boolean; reason?: string } {
   const prereqs = STEP_PREREQUISITES[step] || [];
   for (const prereq of prereqs) {
-    const stepStatuses = workflow.stepStatuses as unknown as Record<string, IStepStatus>;
+    const stepStatuses = (workflow as any).toJSON().stepStatuses as Record<string, IStepStatus>;
     const prereqStatus = stepStatuses?.[prereq];
     if (!prereqStatus || prereqStatus.status !== 'completed') {
       return { allowed: false, reason: `Prerequisite "${prereq}" is not completed (current: ${prereqStatus?.status || 'unknown'})` };
@@ -63,13 +137,60 @@ export function canRunStep(workflow: IWorkflow, step: string): { allowed: boolea
  */
 function getPromptKey(step: string): string {
   const map: Record<string, string> = {
+    step0: 'default_prompt_boot',
     step1: 'default_prompt_step1',
     step2a: 'default_prompt_step2a',
     step2b: 'default_prompt_step2b',
     step2c: 'default_prompt_step2c',
     step3: 'default_prompt_step3',
+    step4: 'default_prompt_step4',
+    step5a: 'default_prompt_step5a',
+    step5b: 'default_prompt_step5b',
+    step5c: 'default_prompt_step5c',
+    step6: 'default_prompt_step6',
   };
   return map[step] || `default_prompt_${step}`;
+}
+
+/**
+ * Run the boot sequence: /new (if retry) → open browser → open simple chathub extension ui.
+ * Returns { success, output } indicating whether the boot succeeded.
+ */
+async function runBootSequence(
+  gapId: string,
+  sessionKey: string,
+  maxAttempts = 3
+): Promise<{ success: boolean; output: string }> {
+  let output = '';
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      console.log(`⏳ [${gapId}] boot retry ${attempt}/${maxAttempts}: sending /new to reset session...`);
+      await wsClient.sendToSession(sessionKey, '/new');
+      await delay(3000);
+    }
+
+    console.log(`🔄 [${gapId}] boot — Open browser${attempt > 0 ? ` [attempt ${attempt + 1}]` : ''}...`);
+    const browserOutput = await wsClient.sendToSession(sessionKey, 'open browser');
+
+    if (isMoltBotFailureResponse(browserOutput)) {
+      console.log(`⚠️ [${gapId}] boot — Open browser failed: relay not connected`);
+      continue;
+    }
+
+    console.log(`🔄 [${gapId}] boot — Open SimpleChatHub extension${attempt > 0 ? ` [attempt ${attempt + 1}]` : ''}...`);
+    output = await wsClient.sendToSession(sessionKey, 'open simple chathub extension ui');
+
+    if (isMoltBotFailureResponse(output)) {
+      console.log(`⚠️ [${gapId}] boot — Open extension failed: relay not connected`);
+      continue;
+    }
+
+    // Both commands succeeded
+    return { success: true, output };
+  }
+
+  return { success: false, output: 'Boot failed after all retries: OpenClaw Browser Relay not connected.' };
 }
 
 /**
@@ -82,63 +203,112 @@ async function executePanel(
   panelId: number,
   prompt: string
 ): Promise<{ success: boolean; output: string; error?: string }> {
-  try {
-    console.log(`🔄 [${gapId}] ${step} — session ${session}, panel ${panelId}: sending...`);
+  const maxRetries = step === 'step0' ? 0 : config.panelRetryCount;
+  const retryDelayMs = config.panelRetryDelayMs;
+  const timeoutMs = step === 'step0' ? 120000 : config.browserStepTimeoutMs;
 
-    const output = await wsClient.sendToPanel(panelId, prompt);
-    const passed = validateMarker(output, step);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`⏳ [${gapId}] ${step} — retry ${attempt}/${maxRetries} in ${retryDelayMs / 1000}s...`);
+        await delay(retryDelayMs);
+      }
 
-    // Store in MongoDB
-    await StepOutput.create({
-      gapId, step, session, panel: panelId,
-      output, validationPassed: passed, storedInCoda: false,
-    });
+      console.log(`🔄 [${gapId}] ${step} — session ${session}, panel ${panelId}: sending${attempt > 0 ? ` (attempt ${attempt + 1})` : ''}...`);
 
-    emit({
-      type: 'panel_complete',
-      gapId,
-      data: { step, session, panelId, passed },
-    });
+      const sessionKey = 'agent:main:main';
+      let output = '';
 
-    if (!passed) {
-      return {
-        success: false, output,
-        error: `Validation failed: marker not found in session ${session}`,
-      };
+      if (step === 'step0') {
+        // Step 0: run the full boot sequence
+        const boot = await runBootSequence(gapId, sessionKey);
+        output = boot.output;
+        if (boot.success) {
+          output += '\n=== END OF STEP 0 ===';
+        }
+      } else {
+        output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
+
+        // If MoltBot says "no tab connected", run the full boot sequence first, then retry the step
+        if (isMoltBotFailureResponse(output)) {
+          console.log(`⚠️ [${gapId}] ${step} — no tab connected, running full boot sequence before retrying...`);
+          const boot = await runBootSequence(gapId, sessionKey);
+          if (boot.success) {
+            await delay(2000);
+            console.log(`🔄 [${gapId}] ${step} — boot recovered, retrying step prompt...`);
+            output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
+          } else {
+            output = boot.output;
+          }
+        }
+      }
+
+      const passed = validateMarker(output, step);
+
+      // Store in MongoDB
+      await StepOutput.create({
+        gapId, step, session, panel: panelId,
+        output, validationPassed: passed, storedInCoda: false,
+      });
+
+      emit({
+        type: 'panel_complete',
+        gapId,
+        data: { step, session, panelId, passed },
+      });
+
+      if (!passed) {
+        return {
+          success: false, output,
+          error: `Validation failed: marker not found in session ${session}`,
+        };
+      }
+
+      // Push to Coda
+      const codaOk = await pushToCoda({
+        gapId, step, session,
+        outputSummary: output.substring(0, 500),
+        status: 'passed',
+        timestamp: new Date().toISOString(),
+      });
+
+      if (codaOk) {
+        await StepOutput.updateOne(
+          { gapId, step, session, panel: panelId },
+          { storedInCoda: true }
+        );
+      }
+
+      return { success: true, output };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+
+      // If retryable and we have attempts left, log and continue the loop
+      if (attempt < maxRetries && isRetryableError(error)) {
+        console.log(`⚠️ [${gapId}] ${step} — transient error: ${errMsg}`);
+        // Clean up any partial output before retrying
+        await StepOutput.deleteMany({ gapId, step, session, panel: panelId });
+        continue;
+      }
+
+      // Final failure — store error and emit
+      await StepOutput.create({
+        gapId, step, session, panel: panelId,
+        output: `ERROR: ${errMsg}`, validationPassed: false, storedInCoda: false,
+      });
+
+      emit({
+        type: 'panel_complete',
+        gapId,
+        data: { step, session, panelId, passed: false, error: errMsg },
+      });
+
+      return { success: false, output: '', error: errMsg };
     }
-
-    // Push to Coda
-    const codaOk = await pushToCoda({
-      gapId, step, session,
-      outputSummary: output.substring(0, 500),
-      status: 'passed',
-      timestamp: new Date().toISOString(),
-    });
-
-    if (codaOk) {
-      await StepOutput.updateOne(
-        { gapId, step, session, panel: panelId },
-        { storedInCoda: true }
-      );
-    }
-
-    return { success: true, output };
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-
-    await StepOutput.create({
-      gapId, step, session, panel: panelId,
-      output: `ERROR: ${errMsg}`, validationPassed: false, storedInCoda: false,
-    });
-
-    emit({
-      type: 'panel_complete',
-      gapId,
-      data: { step, session, panelId, passed: false, error: errMsg },
-    });
-
-    return { success: false, output: '', error: errMsg };
   }
+
+  // Should never reach here, but just in case
+  return { success: false, output: '', error: 'Exhausted all retry attempts' };
 }
 
 /**
@@ -175,10 +345,10 @@ export async function runStep(gapId: string, step: string): Promise<void> {
     throw new Error(check.reason!);
   }
 
-  // Get session count for this step
-  const stepStatuses = workflow.stepStatuses as unknown as Record<string, IStepStatus>;
-  const stepInfo = stepStatuses?.[step];
-  const totalSessions = stepInfo?.totalSessions || config.panelCount;
+  // Since all steps now execute in the main session automatically waiting for generation, 
+  // totalSessions per step should just be 1, because 1 request is sent to the active tab which handles all panels inside its own React UI.
+  // We keep tracking totalSessions logic but clamp it to 1 to signify 1 step execution request = 1 phase completed.
+  const totalSessions = 1;
 
   // Mark step running
   await Workflow.updateOne({ gapId }, {
@@ -201,8 +371,54 @@ export async function runStep(gapId: string, step: string): Promise<void> {
     await wsClient.connect();
 
     const promptKey = getPromptKey(step);
-    const snapshot = workflow.promptSnapshot as unknown as Record<string, string> | undefined;
-    const prompt = buildPrompt(promptKey, workflow.contextBlock, snapshot);
+    const snapshot = workflow.promptSnapshot as unknown as Record<string, string> | Map<string, string> | undefined;
+    const context = step === 'step0' ? '' : workflow.contextBlock;
+    let prompt = buildPrompt(promptKey, context, snapshot);
+
+    // Inject downstream outputs for Step 2b, 2c, 3, 4, 5b, 5c, 6
+    // Note: Step 2a and 5a read panel outputs directly via MoltBot browser interaction
+    if (step === 'step2b') {
+      const step2aOuts = await StepOutput.find({ gapId, step: 'step2a', validationPassed: true }).sort({ session: 1 });
+      const combined = step2aOuts.map(o => `--- Analysis ${o.session} ---\n${o.output}`).join('\n\n');
+      prompt = prompt.replace('{{STEP2A_OUTPUTS}}', combined);
+    } else if (step === 'step2c') {
+      const step2bOuts = await StepOutput.find({ gapId, step: 'step2b', validationPassed: true }).sort({ session: 1 });
+      const combined = step2bOuts.map(o => `--- Consolidated Analysis ${o.session} ---\n${o.output}`).join('\n\n');
+      prompt = prompt.replace('{{STEP2B_OUTPUTS}}', combined);
+    } else if (step === 'step3') {
+      const step2cOuts = await StepOutput.find({ gapId, step: 'step2c', validationPassed: true }).sort({ session: 1 });
+      const analysisOutput = await StepOutput.findOne({ gapId, step: 'step2b', validationPassed: true });
+      const qualityEval = step2cOuts.map(o => o.output).join('\n\n');
+      prompt = prompt.replace('{{ANALYSIS_INPUT}}', analysisOutput?.output || 'No analysis found.');
+      prompt = prompt.replace('{{QUALITY_EVALUATION}}', qualityEval);
+    } else if (step === 'step4') {
+      // Extract the Gap List from Step 3's output
+      const step3Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
+      const step3Text = step3Out?.output || '';
+      // Extract gap list section from step3 output
+      const gapMatch = step3Text.match(/(?:Gap List|gap list|Gaps?|Remaining).*?\n([\s\S]*?)(?:===|$)/i);
+      const gapList = gapMatch ? gapMatch[1].trim() : step3Text;
+      prompt = prompt.replace('{{GAP_LIST}}', gapList);
+    } else if (step === 'step5b') {
+      // Inject Step 5a outputs + Round 1 output for context
+      const step5aOuts = await StepOutput.find({ gapId, step: 'step5a', validationPassed: true }).sort({ session: 1 });
+      const combined = step5aOuts.map(o => `--- Gap Analysis ${o.session} ---\n${o.output}`).join('\n\n');
+      const round1Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
+      prompt = prompt.replace('{{ROUND1_OUTPUT}}', round1Out?.output || 'No round 1 output found.');
+      prompt = prompt.replace('{{STEP5A_OUTPUTS}}', combined);
+    } else if (step === 'step5c') {
+      const step5bOuts = await StepOutput.find({ gapId, step: 'step5b', validationPassed: true }).sort({ session: 1 });
+      const combined = step5bOuts.map(o => `--- Consolidated Gap Analysis ${o.session} ---\n${o.output}`).join('\n\n');
+      prompt = prompt.replace('{{STEP5B_OUTPUTS}}', combined);
+    } else if (step === 'step6') {
+      const round1Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
+      const gapAnalysis = await StepOutput.findOne({ gapId, step: 'step5b', validationPassed: true });
+      const step5cOuts = await StepOutput.find({ gapId, step: 'step5c', validationPassed: true }).sort({ session: 1 });
+      const gapQualityEval = step5cOuts.map(o => o.output).join('\n\n');
+      prompt = prompt.replace('{{ROUND1_OUTPUT}}', round1Out?.output || 'No round 1 output found.');
+      prompt = prompt.replace('{{GAP_ANALYSIS_INPUT}}', gapAnalysis?.output || 'No gap analysis found.');
+      prompt = prompt.replace('{{GAP_QUALITY_EVALUATION}}', gapQualityEval);
+    }
 
     // Launch sessions in parallel
     const results = await Promise.all(
@@ -260,18 +476,60 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       // Check if ALL steps are done
       const refreshed = await Workflow.findOne({ gapId });
       if (refreshed) {
-        const allStatuses = refreshed.stepStatuses as unknown as Record<string, IStepStatus>;
+        const allStatuses = (refreshed as any).toJSON().stepStatuses as Record<string, IStepStatus>;
         const allCompleted = Object.values(allStatuses).every(
           (s) => s.status === 'completed' || s.status === 'idle'
         );
-        // For Phase 1 only step1 matters
-        if (allStatuses?.step1?.status === 'completed') {
-          await Workflow.updateOne({ gapId }, { status: 'completed', currentStep: 'done' });
-          emit({
-            type: 'workflow_completed',
-            gapId,
-            data: { totalSessions, allPassed: true },
+
+        // Auto-chain next steps sequentially
+        if (step === 'step0') {
+          // Already handled in startWorkflow
+        } else if (step === 'step1') {
+          setImmediate(() => {
+            runStep(gapId, 'step2a').catch(e => console.error(`Auto-chain 2a failed:`, e.message));
           });
+        } else if (step === 'step2a') {
+          setImmediate(() => {
+            runStep(gapId, 'step2b').catch(e => console.error(`Auto-chain 2b failed:`, e.message));
+          });
+        } else if (step === 'step2b') {
+          setImmediate(() => {
+            runStep(gapId, 'step2c').catch(e => console.error(`Auto-chain 2c failed:`, e.message));
+          });
+        } else if (step === 'step2c') {
+          setImmediate(() => {
+            runStep(gapId, 'step3').catch(e => console.error(`Auto-chain 3 failed:`, e.message));
+          });
+        } else if (step === 'step3') {
+          // Round 1 done — continue to Round 2 (Gap Research)
+          console.log(`🔄 [${gapId}] Round 1 complete. Starting Round 2 (Gap Research)...`);
+          setImmediate(() => {
+            runStep(gapId, 'step4').catch(e => console.error(`Auto-chain 4 failed:`, e.message));
+          });
+        } else if (step === 'step4') {
+          setImmediate(() => {
+            runStep(gapId, 'step5a').catch(e => console.error(`Auto-chain 5a failed:`, e.message));
+          });
+        } else if (step === 'step5a') {
+          setImmediate(() => {
+            runStep(gapId, 'step5b').catch(e => console.error(`Auto-chain 5b failed:`, e.message));
+          });
+        } else if (step === 'step5b') {
+          setImmediate(() => {
+            runStep(gapId, 'step5c').catch(e => console.error(`Auto-chain 5c failed:`, e.message));
+          });
+        } else if (step === 'step5c') {
+          setImmediate(() => {
+            runStep(gapId, 'step6').catch(e => console.error(`Auto-chain 6 failed:`, e.message));
+          });
+        } else if (step === 'step6') {
+           // Entire workflow (both rounds) is finished
+           await Workflow.updateOne({ gapId }, { status: 'completed', currentStep: 'done' });
+           emit({
+             type: 'workflow_completed',
+             gapId,
+             data: { totalSessions, allPassed: true },
+           });
         }
       }
     }
@@ -295,7 +553,7 @@ export async function rerunFailedSessions(gapId: string, step: string): Promise<
   const workflow = await Workflow.findOne({ gapId });
   if (!workflow) throw new Error(`Workflow ${gapId} not found`);
 
-  const stepStatuses = workflow.stepStatuses as unknown as Record<string, IStepStatus>;
+  const stepStatuses = (workflow as any).toJSON().stepStatuses as Record<string, IStepStatus>;
   const stepInfo = stepStatuses?.[step];
   if (!stepInfo || stepInfo.failedSessions.length === 0) {
     throw new Error(`No failed sessions to re-run for ${step}`);
@@ -317,8 +575,50 @@ export async function rerunFailedSessions(gapId: string, step: string): Promise<
     await wsClient.connect();
 
     const promptKey = getPromptKey(step);
-    const snapshot = workflow.promptSnapshot as unknown as Record<string, string> | undefined;
-    const prompt = buildPrompt(promptKey, workflow.contextBlock, snapshot);
+    const snapshot = workflow.promptSnapshot as unknown as Record<string, string> | Map<string, string> | undefined;
+    let prompt = buildPrompt(promptKey, workflow.contextBlock, snapshot);
+
+    // Inject downstream outputs for Step 2b, 2c, 3, 4, 5b, 5c, 6
+    // Note: Step 2a and 5a read panel outputs directly via MoltBot browser interaction
+    if (step === 'step2b') {
+      const step2aOuts = await StepOutput.find({ gapId, step: 'step2a', validationPassed: true }).sort({ session: 1 });
+      const combined = step2aOuts.map(o => `--- Analysis ${o.session} ---\n${o.output}`).join('\n\n');
+      prompt = prompt.replace('{{STEP2A_OUTPUTS}}', combined);
+    } else if (step === 'step2c') {
+      const step2bOuts = await StepOutput.find({ gapId, step: 'step2b', validationPassed: true }).sort({ session: 1 });
+      const combined = step2bOuts.map(o => `--- Consolidated Analysis ${o.session} ---\n${o.output}`).join('\n\n');
+      prompt = prompt.replace('{{STEP2B_OUTPUTS}}', combined);
+    } else if (step === 'step3') {
+      const step2cOuts = await StepOutput.find({ gapId, step: 'step2c', validationPassed: true }).sort({ session: 1 });
+      const analysisOutput = await StepOutput.findOne({ gapId, step: 'step2b', validationPassed: true });
+      const qualityEval = step2cOuts.map(o => o.output).join('\n\n');
+      prompt = prompt.replace('{{ANALYSIS_INPUT}}', analysisOutput?.output || 'No analysis found.');
+      prompt = prompt.replace('{{QUALITY_EVALUATION}}', qualityEval);
+    } else if (step === 'step4') {
+      const step3Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
+      const step3Text = step3Out?.output || '';
+      const gapMatch = step3Text.match(/(?:Gap List|gap list|Gaps?|Remaining).*?\n([\s\S]*?)(?:===|$)/i);
+      const gapList = gapMatch ? gapMatch[1].trim() : step3Text;
+      prompt = prompt.replace('{{GAP_LIST}}', gapList);
+    } else if (step === 'step5b') {
+      const step5aOuts = await StepOutput.find({ gapId, step: 'step5a', validationPassed: true }).sort({ session: 1 });
+      const combined = step5aOuts.map(o => `--- Gap Analysis ${o.session} ---\n${o.output}`).join('\n\n');
+      const round1Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
+      prompt = prompt.replace('{{ROUND1_OUTPUT}}', round1Out?.output || 'No round 1 output found.');
+      prompt = prompt.replace('{{STEP5A_OUTPUTS}}', combined);
+    } else if (step === 'step5c') {
+      const step5bOuts = await StepOutput.find({ gapId, step: 'step5b', validationPassed: true }).sort({ session: 1 });
+      const combined = step5bOuts.map(o => `--- Consolidated Gap Analysis ${o.session} ---\n${o.output}`).join('\n\n');
+      prompt = prompt.replace('{{STEP5B_OUTPUTS}}', combined);
+    } else if (step === 'step6') {
+      const round1Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
+      const gapAnalysis = await StepOutput.findOne({ gapId, step: 'step5b', validationPassed: true });
+      const step5cOuts = await StepOutput.find({ gapId, step: 'step5c', validationPassed: true }).sort({ session: 1 });
+      const gapQualityEval = step5cOuts.map(o => o.output).join('\n\n');
+      prompt = prompt.replace('{{ROUND1_OUTPUT}}', round1Out?.output || 'No round 1 output found.');
+      prompt = prompt.replace('{{GAP_ANALYSIS_INPUT}}', gapAnalysis?.output || 'No gap analysis found.');
+      prompt = prompt.replace('{{GAP_QUALITY_EVALUATION}}', gapQualityEval);
+    }
 
     // Delete old failed outputs
     await StepOutput.deleteMany({
@@ -411,11 +711,17 @@ export async function startWorkflow(contextBlock: string): Promise<IWorkflow> {
     data: { status: 'running', currentStep: 'step0' },
   });
 
-  // Run Step 1 in background
+  // Run Step 0 (boot) in background, then Step 1
   setImmediate(() => {
-    runStep(gapId, 'step1').catch((err) => {
-      console.error(`❌ [${gapId}] Step 1 error:`, err.message);
-    });
+    runStep(gapId, 'step0')
+      .then(() => {
+        console.log(`⏳ [${gapId}] Waiting ${config.stepTransitionDelayMs / 1000}s for browser control service to stabilize...`);
+        return delay(config.stepTransitionDelayMs);
+      })
+      .then(() => runStep(gapId, 'step1'))
+      .catch((err) => {
+        console.error(`❌ [${gapId}] Boot/Step error:`, err.message);
+      });
   });
 
   return workflow;

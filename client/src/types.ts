@@ -61,6 +61,7 @@ export interface WSEvent {
 }
 
 export const STEP_DEFINITIONS = [
+  { key: 'step0',  label: 'Step 0 — BOOT',         parallelCount: 1, description: 'Environment boot / browser prep' },
   { key: 'step1',  label: 'Step 1 — SEARCH',       parallelCount: 6, description: '6 parallel sessions' },
   { key: 'step2a', label: 'Step 2a — ANALYZE',      parallelCount: 3, description: '3 parallel sessions' },
   { key: 'step2b', label: 'Step 2b — CROSS-REVIEW', parallelCount: 1, description: 'Single session' },
@@ -69,7 +70,8 @@ export const STEP_DEFINITIONS = [
 ];
 
 export const STEP_PREREQUISITES: Record<string, string[]> = {
-  step1:  [],
+  step0:  [],
+  step1:  ['step0'],
   step2a: ['step1'],
   step2b: ['step1'],
   step2c: ['step2a', 'step2b'],

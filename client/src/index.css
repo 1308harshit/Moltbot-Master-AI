@@ -164,6 +164,12 @@ body {
   align-items: center;
 }
 
+.status-indicators {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .ws-indicator {
   display: inline-flex;
   align-items: center;

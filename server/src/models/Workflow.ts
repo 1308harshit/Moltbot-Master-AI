@@ -36,8 +36,9 @@ const StepStatusSchema = new Schema<IStepStatus>(
 );
 
 const DEFAULT_STEP_STATUSES: Record<string, IStepStatus> = {
-  step1:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 6 },
-  step2a: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 3 },
+  step0:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
+  step1:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
+  step2a: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
   step2b: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
   step2c: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
   step3:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
@@ -74,8 +75,9 @@ const WorkflowSchema = new Schema<IWorkflow>(
 export const Workflow = model<IWorkflow>('Workflow', WorkflowSchema);
 
 export const STEP_DEFINITIONS = [
-  { key: 'step1',  label: 'Step 1 — SEARCH',        parallelCount: 6, description: '6 parallel sessions' },
-  { key: 'step2a', label: 'Step 2a — ANALYZE',       parallelCount: 3, description: '3 parallel sessions' },
+  { key: 'step0',  label: 'Step 0 — BOOT',          parallelCount: 1, description: 'Environment boot / browser prep' },
+  { key: 'step1',  label: 'Step 1 — SEARCH',        parallelCount: 1, description: 'Single session via Master Search Bar' },
+  { key: 'step2a', label: 'Step 2a — ANALYZE',       parallelCount: 1, description: 'Single session' },
   { key: 'step2b', label: 'Step 2b — CROSS-REVIEW',  parallelCount: 1, description: 'Single session' },
   { key: 'step2c', label: 'Step 2c — SYNTHESIZE',    parallelCount: 1, description: 'Single session' },
   { key: 'step3',  label: 'Step 3 — FINALIZE',       parallelCount: 1, description: 'Single session' },
@@ -83,9 +85,10 @@ export const STEP_DEFINITIONS = [
 
 // Step dependency chain: a step requires all its prerequisites to be 'completed'
 export const STEP_PREREQUISITES: Record<string, string[]> = {
-  step1:  [],
+  step0:  [],
+  step1:  ['step0'],
   step2a: ['step1'],
-  step2b: ['step1'],
-  step2c: ['step2a', 'step2b'],
+  step2b: ['step2a'],
+  step2c: ['step2b'],
   step3:  ['step2c'],
 };
