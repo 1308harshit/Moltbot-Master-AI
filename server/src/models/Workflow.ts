@@ -42,6 +42,11 @@ const DEFAULT_STEP_STATUSES: Record<string, IStepStatus> = {
   step2b: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
   step2c: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
   step3:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
+  step4:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
+  step5a: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
+  step5b: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
+  step5c: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
+  step6:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
 };
 
 const WorkflowSchema = new Schema<IWorkflow>(
@@ -75,12 +80,19 @@ const WorkflowSchema = new Schema<IWorkflow>(
 export const Workflow = model<IWorkflow>('Workflow', WorkflowSchema);
 
 export const STEP_DEFINITIONS = [
-  { key: 'step0',  label: 'Step 0 — BOOT',          parallelCount: 1, description: 'Environment boot / browser prep' },
-  { key: 'step1',  label: 'Step 1 — SEARCH',        parallelCount: 1, description: 'Single session via Master Search Bar' },
-  { key: 'step2a', label: 'Step 2a — ANALYZE',       parallelCount: 1, description: 'Single session' },
-  { key: 'step2b', label: 'Step 2b — CROSS-REVIEW',  parallelCount: 1, description: 'Single session' },
-  { key: 'step2c', label: 'Step 2c — SYNTHESIZE',    parallelCount: 1, description: 'Single session' },
-  { key: 'step3',  label: 'Step 3 — FINALIZE',       parallelCount: 1, description: 'Single session' },
+  // Round 1: Initial Research
+  { key: 'step0',  label: 'Step 0 — BOOT',              parallelCount: 1, description: 'Environment boot / browser prep' },
+  { key: 'step1',  label: 'Step 1 — SEARCH',            parallelCount: 1, description: 'Single session via Master Search Bar' },
+  { key: 'step2a', label: 'Step 2a — ANALYZE',           parallelCount: 1, description: 'Read and analyze 6 panel responses' },
+  { key: 'step2b', label: 'Step 2b — CROSS-REVIEW',      parallelCount: 1, description: 'Cross-review and consolidate' },
+  { key: 'step2c', label: 'Step 2c — EVALUATE',          parallelCount: 1, description: 'Quality evaluation' },
+  { key: 'step3',  label: 'Step 3 — FINALIZE (Round 1)', parallelCount: 1, description: 'First finalization with gap list' },
+  // Round 2: Gap Research
+  { key: 'step4',  label: 'Step 4 — SEARCH (Gaps)',      parallelCount: 1, description: 'Search gap topics in SimpleChatHub' },
+  { key: 'step5a', label: 'Step 5a — ANALYZE (Gaps)',     parallelCount: 1, description: 'Read and analyze gap responses' },
+  { key: 'step5b', label: 'Step 5b — CROSS-REVIEW (Gaps)',parallelCount: 1, description: 'Cross-review gap findings with Round 1' },
+  { key: 'step5c', label: 'Step 5c — EVALUATE (Gaps)',    parallelCount: 1, description: 'Quality evaluation of gap research' },
+  { key: 'step6',  label: 'Step 6 — FINALIZE (Final)',   parallelCount: 1, description: 'Final complete research document' },
 ];
 
 // Step dependency chain: a step requires all its prerequisites to be 'completed'
@@ -91,4 +103,9 @@ export const STEP_PREREQUISITES: Record<string, string[]> = {
   step2b: ['step2a'],
   step2c: ['step2b'],
   step3:  ['step2c'],
+  step4:  ['step3'],
+  step5a: ['step4'],
+  step5b: ['step5a'],
+  step5c: ['step5b'],
+  step6:  ['step5c'],
 };

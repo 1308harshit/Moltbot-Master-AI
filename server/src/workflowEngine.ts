@@ -24,7 +24,7 @@ function isRetryableError(error: unknown): boolean {
 }
 
 /** Check if MoltBot's response indicates ANY failure that requires session reset + boot retry.
- *  Covers: relay disconnected, ARIA/DOM inaccessible, browser control service down, timeouts. */
+ *  Covers: relay disconnected, ARIA/DOM inaccessible, browser control service down, timeouts, extension not found. */
 function isMoltBotFailureResponse(output: string): boolean {
   const lower = output.toLowerCase();
   return (
@@ -51,10 +51,17 @@ function isMoltBotFailureResponse(output: string): boolean {
     lower.includes("can't complete that step") ||
     lower.includes('zero inputs') ||
     lower.includes('image-only') ||
-    // MoltBot asking user to do it manually
+    // MoltBot asking user to do it manually / extension not found
     lower.includes('what i need from you') ||
     lower.includes('please restart') ||
-    lower.includes('please do this')
+    lower.includes('please do this') ||
+    lower.includes('what do you want') ||
+    lower.includes('not installed') ||
+    lower.includes('no search results') ||
+    lower.includes("isn't installed") ||
+    lower.includes('no extension') ||
+    lower.includes('install chathub') ||
+    lower.includes("can't find")
   );
 }
 
@@ -178,8 +185,8 @@ async function runBootSequence(
       continue;
     }
 
-    console.log(`🔄 [${gapId}] boot — Open SimpleChatHub extension${attempt > 0 ? ` [attempt ${attempt + 1}]` : ''}...`);
-    output = await wsClient.sendToSession(sessionKey, 'open simple chathub extension ui');
+    console.log(`🔄 [${gapId}] boot — Open Simple Chat Hub extension${attempt > 0 ? ` [attempt ${attempt + 1}]` : ''}...`);
+    output = await wsClient.sendToSession(sessionKey, 'open the extension called "Simple Chat Hub" - it is a chrome extension that has 6 AI chat panels. Open its main UI page.');
 
     if (isMoltBotFailureResponse(output)) {
       console.log(`⚠️ [${gapId}] boot — Open extension failed: relay not connected`);
@@ -392,12 +399,14 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       prompt = prompt.replace('{{ANALYSIS_INPUT}}', analysisOutput?.output || 'No analysis found.');
       prompt = prompt.replace('{{QUALITY_EVALUATION}}', qualityEval);
     } else if (step === 'step4') {
-      // Extract the Gap List from Step 3's output
+      // Inject Step 2a output (analysis context) + Gap List from Step 3
+      const step2aOut = await StepOutput.findOne({ gapId, step: 'step2a', validationPassed: true });
       const step3Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
       const step3Text = step3Out?.output || '';
       // Extract gap list section from step3 output
       const gapMatch = step3Text.match(/(?:Gap List|gap list|Gaps?|Remaining).*?\n([\s\S]*?)(?:===|$)/i);
       const gapList = gapMatch ? gapMatch[1].trim() : step3Text;
+      prompt = prompt.replace('{{STEP2A_CONTEXT}}', step2aOut?.output || 'No analysis context available.');
       prompt = prompt.replace('{{GAP_LIST}}', gapList);
     } else if (step === 'step5b') {
       // Inject Step 5a outputs + Round 1 output for context

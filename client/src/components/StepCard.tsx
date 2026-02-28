@@ -31,7 +31,6 @@ const StepCard: React.FC<StepCardProps> = ({
   selectedSession,
   onSelectSession,
 }) => {
-  // Check prerequisites to determine if step is locked
   const prereqs = STEP_PREREQUISITES[stepKey] || [];
   const isLocked = prereqs.some((p) => {
     const ps = allStepStatuses[p];
@@ -41,6 +40,9 @@ const StepCard: React.FC<StepCardProps> = ({
   const isRunning = stepStatus.status === 'running';
   const hasFailed = stepStatus.failedSessions.length > 0;
   const isIdle = stepStatus.status === 'idle';
+
+  // All steps run exactly 1 session (clamp to fix old DB records that had 6)
+  const totalSessions = 1;
 
   const stepOutputs = outputs.filter((o) => o.step === stepKey);
 
@@ -87,7 +89,7 @@ const StepCard: React.FC<StepCardProps> = ({
           )}
 
           <span className="step-progress-text">
-            {stepStatus.completedSessions}/{stepStatus.totalSessions}
+            {stepStatus.completedSessions}/{totalSessions}
           </span>
         </div>
       </div>
@@ -117,11 +119,11 @@ const StepCard: React.FC<StepCardProps> = ({
         )}
       </div>
 
-      {/* Session Grid */}
+      {/* Session Grid — single cell per step */}
       {!isIdle && (
         <SessionGrid
           stepKey={stepKey}
-          totalSessions={stepStatus.totalSessions}
+          totalSessions={totalSessions}
           completedSessions={stepStatus.completedSessions}
           failedSessions={stepStatus.failedSessions}
           stepStatus={stepStatus.status}
@@ -133,20 +135,6 @@ const StepCard: React.FC<StepCardProps> = ({
           selectedSession={selectedSession}
           onSelectSession={(session) => onSelectSession(stepKey, session)}
         />
-      )}
-
-      {/* Progress bar */}
-      {stepStatus.totalSessions > 1 && !isIdle && (
-        <div className="progress-bar-container" style={{ marginTop: '0.5rem' }}>
-          <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{
-                width: `${(stepStatus.completedSessions / stepStatus.totalSessions) * 100}%`,
-              }}
-            />
-          </div>
-        </div>
       )}
     </div>
   );
