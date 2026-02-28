@@ -123,7 +123,11 @@ End your response with:
 
   default_prompt_step4: `In the Simple Chat Hub browser extension UI that is already open, click on the search bar at the top (the input that says "Press Enter to send"), type the following text and press Enter:
 
-"{{GAP_LIST}}"
+"Based on this research context:
+{{STEP2A_CONTEXT}}
+
+Please investigate and fill these identified gaps:
+{{GAP_LIST}}"
 
 Wait until all 6 AI panels have fully finished generating their responses. Do not open any new tabs or windows.
 
