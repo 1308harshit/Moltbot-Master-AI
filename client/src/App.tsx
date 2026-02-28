@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type {
   StepStatus,
 } from './types';
@@ -28,6 +28,7 @@ function App() {
   const [activeGapId, setActiveGapId] = useState<string | null>(null);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<number | null>(null);
+  const [multibotConnected, setMultibotConnected] = useState(false);
 
   const {
     workflowData,
@@ -36,6 +37,29 @@ function App() {
     dismissNotification,
     clearNotifications,
   } = useWorkflowSocket(activeGapId);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/multibot/health`, { cache: 'no-store' });
+        const ok = res.ok;
+        if (!cancelled) setMultibotConnected(ok);
+      } catch {
+        if (!cancelled) setMultibotConnected(false);
+      }
+    };
+
+    poll();
+    timer = setInterval(poll, 2000);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, []);
 
   const isRunning = workflowData?.status === 'running';
 
@@ -86,7 +110,7 @@ function App() {
   return (
     <div className="app">
       {/* Gap ID Banner */}
-      <GapIdBanner workflow={workflowData} connected={connected} />
+      <GapIdBanner workflow={workflowData} connected={connected} multibotConnected={multibotConnected} />
 
       <div className="app-header">
         <h1>MoltBot Orchestrator</h1>

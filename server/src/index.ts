@@ -1,7 +1,12 @@
 import express from 'express';
 import cors from 'cors';
+import net from 'net';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { connectDB } from './mongo';
 import { config, promptPlaceholders, updatePromptPlaceholder } from './config';
+import { wsClient } from './wsClient';
 import {
   startWorkflow,
   getWorkflowStatus,
@@ -24,6 +29,88 @@ app.use(express.json({ limit: '10mb' }));
 // ═══════════════════════════════════════════
 // ROUTES
 // ═══════════════════════════════════════════
+
+function ensureOpenClawMemoryFiles(): void {
+  try {
+    const baseDir = path.join(os.homedir(), '.openclaw', 'workspace');
+    const memoryDir = path.join(baseDir, 'memory');
+
+    fs.mkdirSync(memoryDir, { recursive: true });
+
+    const memoryIndex = path.join(baseDir, 'MEMORY.md');
+    if (!fs.existsSync(memoryIndex)) {
+      fs.writeFileSync(memoryIndex, '\n', 'utf8');
+    }
+
+    const now = new Date();
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.md`;
+
+    const today = path.join(memoryDir, fmt(now));
+    const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const yesterday = path.join(memoryDir, fmt(yesterdayDate));
+
+    if (!fs.existsSync(today)) {
+      fs.writeFileSync(today, '\n', 'utf8');
+    }
+    if (!fs.existsSync(yesterday)) {
+      fs.writeFileSync(yesterday, '\n', 'utf8');
+    }
+  } catch (err) {
+    console.warn('⚠️ Failed to initialize OpenClaw memory files:', err instanceof Error ? err.message : String(err));
+  }
+}
+
+function parseWsTarget(wsUrl: string): { host: string; port: number } {
+  const u = new URL(wsUrl);
+  const port = u.port ? parseInt(u.port, 10) : (u.protocol === 'wss:' ? 443 : 80);
+  return { host: u.hostname, port };
+}
+
+async function checkTcp(host: string, port: number, timeoutMs = 800): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const socket = new net.Socket();
+    const onError = (err: Error) => {
+      socket.destroy();
+      reject(err);
+    };
+
+    socket.setTimeout(timeoutMs, () => onError(new Error('timeout')));
+    socket.once('error', onError);
+    socket.connect(port, host, () => {
+      socket.end();
+      resolve();
+    });
+  });
+}
+
+/**
+ * GET /api/multibot/health
+ * Returns whether the MultiBot endpoint is reachable.
+ */
+app.get('/api/multibot/health', async (_req, res) => {
+  const { host, port } = parseWsTarget(config.wsUrl);
+  try {
+    await checkTcp(host, port, 800);
+    if (wsClient.connected) {
+      res.json({ ok: true, host, port, handshake: 'ok' });
+      return;
+    }
+
+    const handshakeTimeoutMs = 1500;
+    await Promise.race([
+      wsClient.connect(),
+      new Promise<void>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('handshake timeout')), handshakeTimeoutMs)
+      ),
+    ]);
+
+    res.json({ ok: wsClient.connected, host, port, handshake: wsClient.connected ? 'ok' : 'failed' });
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    res.status(503).json({ ok: false, host, port, handshake: 'failed', error: errMsg });
+  }
+});
 
 /**
  * POST /api/workflow/start
@@ -163,6 +250,9 @@ app.put('/api/prompts', (req, res) => {
 // ═══════════════════════════════════════════
 
 async function main(): Promise<void> {
+  // Best-effort: create missing OpenClaw memory files to avoid ENOENT in gateway tools.
+  ensureOpenClawMemoryFiles();
+
   await connectDB();
 
   // Start frontend WebSocket server
@@ -170,6 +260,7 @@ async function main(): Promise<void> {
 
   app.listen(config.port, () => {
     console.log(`🚀 Server listening on port ${config.port}`);
+    console.log(`   GET  /api/multibot/health`);
     console.log(`   POST /api/workflow/start`);
     console.log(`   GET  /api/workflow/:gapId/status`);
     console.log(`   GET  /api/workflows`);

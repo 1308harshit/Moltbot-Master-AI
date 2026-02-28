@@ -3,9 +3,10 @@ import type { WorkflowData } from '../types';
 interface GapIdBannerProps {
   workflow: WorkflowData | null;
   connected: boolean;
+  multibotConnected: boolean;
 }
 
-const GapIdBanner: React.FC<GapIdBannerProps> = ({ workflow, connected }) => {
+const GapIdBanner: React.FC<GapIdBannerProps> = ({ workflow, connected, multibotConnected }) => {
   const statusClass = workflow ? `status-${workflow.status}` : 'status-idle';
   const statusLabel = workflow
     ? workflow.status.charAt(0).toUpperCase() + workflow.status.slice(1)
@@ -40,9 +41,16 @@ const GapIdBanner: React.FC<GapIdBannerProps> = ({ workflow, connected }) => {
       </div>
 
       <div className="gap-banner-right">
-        <div className={`ws-indicator ${connected ? 'ws-connected' : 'ws-disconnected'}`}>
-          <span className="ws-dot" />
-          {connected ? 'Live' : 'Offline'}
+        <div className="status-indicators">
+          <div className={`ws-indicator ${connected ? 'ws-connected' : 'ws-disconnected'}`}>
+            <span className="ws-dot" />
+            {connected ? 'Live' : 'Offline'}
+          </div>
+
+          <div className={`ws-indicator ${multibotConnected ? 'ws-connected' : 'ws-disconnected'}`}>
+            <span className="ws-dot" />
+            {multibotConnected ? 'MultiBot' : 'MultiBot Offline'}
+          </div>
         </div>
       </div>
     </div>
