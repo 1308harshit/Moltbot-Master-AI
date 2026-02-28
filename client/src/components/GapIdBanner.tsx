@@ -49,7 +49,7 @@ const GapIdBanner: React.FC<GapIdBannerProps> = ({ workflow, connected, multibot
 
           <div className={`ws-indicator ${multibotConnected ? 'ws-connected' : 'ws-disconnected'}`}>
             <span className="ws-dot" />
-            {multibotConnected ? 'MultiBot' : 'MultiBot Offline'}
+            {multibotConnected ? 'MoltBot' : 'MoltBot Offline'}
           </div>
         </div>
       </div>
