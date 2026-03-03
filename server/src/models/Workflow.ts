@@ -13,6 +13,7 @@ export interface IStepStatus {
 
 export interface IWorkflow extends Document {
   gapId: string;
+  sessionKey: string;
   status: WorkflowStatus;
   currentStep: string;
   contextBlock: string;
@@ -52,6 +53,7 @@ const DEFAULT_STEP_STATUSES: Record<string, IStepStatus> = {
 const WorkflowSchema = new Schema<IWorkflow>(
   {
     gapId: { type: String, required: true, unique: true, index: true },
+    sessionKey: { type: String, required: true },
     status: {
       type: String,
       enum: ['running', 'failed', 'completed'],
