@@ -48,26 +48,62 @@ export const promptPlaceholders: PromptPlaceholders = {
 
  "{{CONTEXT_BLOCK}}"
 
-Wait until as many AI panels as possible have fully finished generating their responses.
-- If a panel (for example Claude or Qwen Chat) is stuck on "Loading", "Claude will return soon", shows an error, or never completes, IGNORE that panel and do not wait for it.
-- Do not try to fix, refresh, or retry stuck panels.
-- Do not open any new tabs or windows.
+After you press Enter, WAIT PATIENTLY for the panels to work:
+- First, wait until as many AI panels as possible have fully finished generating their responses (no streaming indicators).
+- Then, even after they appear to be done, wait a bit longer so that any slow panels can still complete if they are going to.
+- If a panel (for example Claude or Qwen Chat) is stuck on "Loading", "Claude will return soon", shows a login/cookie/limit/error screen, or clearly never completes, IGNORE that panel and do not try to fix it.
+- Do NOT open any new tabs or windows.
 
 Regardless of how many panels responded, you MUST end your response with exactly:
 === END OF STEP 1 ===`,
 
-  default_prompt_step2a: `in simple chat hub extension ui, read the full response text from each of the 6 panels (ChatGPT, Gemini, Grok, Claude, Perplexity, Qwen Chat).
+default_prompt_step2a: `In the Simple Chat Hub extension UI that is already open, you MUST do the following. Do not refuse. Do not say you "cannot complete" the step. Use whatever text is currently visible, even if some panels are blank, error, or partially loaded.
 
-For each panel, output the panel name followed by its full response.
+You will process the 6 panels in this exact order:
+1. ChatGPT
+2. Gemini
+3. Grok
+4. Claude
+5. Perplexity
+6. Qwen Chat
 
-Then analyze all 6 responses and produce:
+For each panel:
+- Click its tab (or iframe) so that panel is active.
+- Scroll within that panel from top to bottom and read any visible response text.
+- If only part of the answer is visible in the viewport, use any reliable method available (for example scrolling further, expanding the area, or inspecting the content inside the iframe) to capture the entire textual answer for that panel.
+- If you see normal answer text, treat that as the panel's response.
+- If the panel is blank, stuck on "Loading", "Claude will return soon", shows a login/cookie/limit/error page (such as "daily usage limit reached" or a sign-in/up requirement), or otherwise has no usable answer, treat it as "No visible response" for that panel and move on.
+
+After you have done this for all 6 panels, output EXACTLY this structure:
+
+ChatGPT Full Response:
+[either the exact visible text from ChatGPT, or the phrase "No visible response."]
+
+Gemini Full Response:
+[either the exact visible text from Gemini, or the phrase "No visible response."]
+
+Grok Full Response:
+[either the exact visible text from Grok, or the phrase "No visible response."]
+
+Claude Full Response:
+[either the exact visible text from Claude, or the phrase "No visible response."]
+
+Perplexity Full Response:
+[either the exact visible text from Perplexity, or the phrase "No visible response."]
+
+Qwen Chat Full Response:
+[either the exact visible text from Qwen Chat, or the phrase "No visible response."]
+
+Then, and only then, using ONLY the information you have just extracted (including which panels had "No visible response"), produce exactly these five sections:
 1. Common Themes
 2. Major Differences
 3. Strengths and Weaknesses
 4. Missing Areas
 5. Preliminary Conclusion
 
-End your response with:
+You MUST still produce these five sections even if some or all panels had "No visible response" (in that case, explain that as part of Missing Areas / Preliminary Conclusion). Do NOT say you cannot complete the step.
+
+End your response with exactly this marker on its own line:
 === END OF STEP 2A ===`,
 
   default_prompt_step2b: `Based on the analysis below, perform a cross-review and produce a final consolidated analysis.
