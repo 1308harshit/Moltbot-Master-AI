@@ -212,7 +212,7 @@ async function executePanel(
 ): Promise<{ success: boolean; output: string; error?: string }> {
   const maxRetries = step === 'step0' ? 0 : config.panelRetryCount;
   const retryDelayMs = config.panelRetryDelayMs;
-  const timeoutMs = step === 'step0' ? 120000 : config.browserStepTimeoutMs;
+  const timeoutMs = config.browserStepTimeoutMs;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
