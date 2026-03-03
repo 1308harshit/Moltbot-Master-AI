@@ -32,10 +32,10 @@ export const config = {
   },
 
   // Resilience settings for browser-dependent steps
-  stepTransitionDelayMs: parseInt(process.env.STEP_TRANSITION_DELAY_MS || '5000', 10),   // delay between steps
-  panelRetryCount: parseInt(process.env.PANEL_RETRY_COUNT || '2', 10),                   // max retries on transient failure
-  panelRetryDelayMs: parseInt(process.env.PANEL_RETRY_DELAY_MS || '10000', 10),           // delay between retries
-  browserStepTimeoutMs: parseInt(process.env.BROWSER_STEP_TIMEOUT_MS || '180000', 10),    // timeout for browser-dependent steps
+  stepTransitionDelayMs: parseInt(process.env.STEP_TRANSITION_DELAY_MS || '5000', 10),      // delay between steps
+  panelRetryCount: parseInt(process.env.PANEL_RETRY_COUNT || '2', 10),                      // max retries on transient failure
+  panelRetryDelayMs: parseInt(process.env.PANEL_RETRY_DELAY_MS || '10000', 10),             // delay between retries
+  browserStepTimeoutMs: parseInt(process.env.BROWSER_STEP_TIMEOUT_MS || '600000', 10),      // timeout for browser-dependent steps (default 10 minutes)
 } as const;
 
 // Prompt placeholders — opinionated defaults, editable from frontend
@@ -46,11 +46,14 @@ export const promptPlaceholders: PromptPlaceholders = {
 
   default_prompt_step1: `In the Simple Chat Hub browser extension UI that is already open, click on the search bar at the top (the input that says "Press Enter to send"), type the following text and press Enter:
 
-"{{CONTEXT_BLOCK}}"
+ "{{CONTEXT_BLOCK}}"
 
-Wait until all 6 AI panels have fully finished generating their responses. Do not open any new tabs or windows.
+Wait until as many AI panels as possible have fully finished generating their responses.
+- If a panel (for example Claude or Qwen Chat) is stuck on "Loading", "Claude will return soon", shows an error, or never completes, IGNORE that panel and do not wait for it.
+- Do not try to fix, refresh, or retry stuck panels.
+- Do not open any new tabs or windows.
 
-Once all 6 panels are done, end your response with:
+Regardless of how many panels responded, you MUST end your response with exactly:
 === END OF STEP 1 ===`,
 
   default_prompt_step2a: `in simple chat hub extension ui, read the full response text from each of the 6 panels (ChatGPT, Gemini, Grok, Claude, Perplexity, Qwen Chat).
@@ -123,15 +126,18 @@ End your response with:
 
   default_prompt_step4: `In the Simple Chat Hub browser extension UI that is already open, click on the search bar at the top (the input that says "Press Enter to send"), type the following text and press Enter:
 
-"Based on this research context:
+ "Based on this research context:
 {{STEP2A_CONTEXT}}
 
 Please investigate and fill these identified gaps:
 {{GAP_LIST}}"
 
-Wait until all 6 AI panels have fully finished generating their responses. Do not open any new tabs or windows.
+Wait until as many AI panels as possible have fully finished generating their responses.
+- If a panel (for example Claude or Qwen Chat) is stuck on "Loading", "Claude will return soon", shows an error, or never completes, IGNORE that panel and do not wait for it.
+- Do not try to fix, refresh, or retry stuck panels.
+- Do not open any new tabs or windows.
 
-Once all 6 panels are done, end your response with:
+Regardless of how many panels responded, you MUST end your response with exactly:
 === END OF STEP 4 ===`,
 
   default_prompt_step5a: `in simple chat hub extension ui, read the full response text from each of the 6 panels (ChatGPT, Gemini, Grok, Claude, Perplexity, Qwen Chat).
