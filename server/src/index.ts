@@ -13,6 +13,8 @@ import {
   listWorkflows,
   runStep,
   rerunFailedSessions,
+  stopWorkflow,
+  deleteWorkflow,
   workflowEvents,
 } from './workflowEngine';
 import { startWSServer } from './wsServer';
@@ -218,6 +220,38 @@ app.post('/api/workflow/:gapId/step/:step/rerun-failed', async (req, res) => {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error('❌ POST rerun-failed error:', errMsg);
     res.status(500).json({ error: errMsg });
+  }
+});
+
+/**
+ * POST /api/workflow/:gapId/stop
+ * Stop a currently running workflow.
+ */
+app.post('/api/workflow/:gapId/stop', async (req, res) => {
+  try {
+    const { gapId } = req.params;
+    await stopWorkflow(gapId);
+    res.json({ success: true, message: `Workflow ${gapId} stopped` });
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error('❌ POST workflow/stop error:', errMsg);
+    res.status(400).json({ error: errMsg });
+  }
+});
+
+/**
+ * DELETE /api/workflow/:gapId
+ * Delete a workflow and all its step outputs.
+ */
+app.delete('/api/workflow/:gapId', async (req, res) => {
+  try {
+    const { gapId } = req.params;
+    await deleteWorkflow(gapId);
+    res.json({ success: true, message: `Workflow ${gapId} deleted` });
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error('❌ DELETE workflow error:', errMsg);
+    res.status(400).json({ error: errMsg });
   }
 });
 

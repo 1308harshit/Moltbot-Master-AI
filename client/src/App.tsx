@@ -93,6 +93,15 @@ function App() {
     setSelectedSession(null);
   };
 
+  const handleWorkflowDeleted = (gapId: string) => {
+    // If the currently viewed workflow was deleted, reset the view
+    if (activeGapId === gapId) {
+      setActiveGapId(null);
+      setSelectedStep(null);
+      setSelectedSession(null);
+    }
+  };
+
   const handleSelectSession = (step: string, session: number) => {
     setSelectedStep(step);
     setSelectedSession(session);
@@ -123,6 +132,7 @@ function App() {
           <WorkflowHistory
             activeGapId={activeGapId}
             onSelectWorkflow={handleSelectWorkflow}
+            onWorkflowDeleted={handleWorkflowDeleted}
           />
         </aside>
 

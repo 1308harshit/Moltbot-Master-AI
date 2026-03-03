@@ -924,6 +924,53 @@ body {
   font-size: 0.8rem;
 }
 
+/* History action buttons (Stop / Delete) */
+.history-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+  opacity: 1;
+  transition: opacity var(--transition);
+}
+
+.history-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all var(--transition);
+  padding: 0;
+}
+
+.history-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.history-btn-stop {
+  color: var(--accent-amber);
+}
+
+.history-btn-stop:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.history-btn-delete {
+  color: var(--accent-rose);
+}
+
+.history-btn-delete:hover:not(:disabled) {
+  background: rgba(244, 63, 94, 0.15);
+  border-color: rgba(244, 63, 94, 0.3);
+}
+
 /* ═══════════════════════════════════════
    POPUP / TOAST (failure modal)
    ═══════════════════════════════════════ */

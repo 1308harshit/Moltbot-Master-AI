@@ -5,14 +5,17 @@ import { useState, useEffect } from 'react';
 interface WorkflowHistoryProps {
   activeGapId: string | null;
   onSelectWorkflow: (gapId: string) => void;
+  onWorkflowDeleted?: (gapId: string) => void;
 }
 
 const WorkflowHistory: React.FC<WorkflowHistoryProps> = ({
   activeGapId,
   onSelectWorkflow,
+  onWorkflowDeleted,
 }) => {
   const [workflows, setWorkflows] = useState<WorkflowHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -30,17 +33,50 @@ const WorkflowHistory: React.FC<WorkflowHistoryProps> = ({
 
   useEffect(() => {
     fetchHistory();
-    // Refresh every 15 seconds
     const interval = setInterval(fetchHistory, 15000);
     return () => clearInterval(interval);
   }, []);
 
-  // Also refresh when activeGapId changes (new workflow started)
   useEffect(() => {
     if (activeGapId) {
       fetchHistory();
     }
   }, [activeGapId]);
+
+  const handleStop = async (e: React.MouseEvent, gapId: string) => {
+    e.stopPropagation();
+    if (actionInProgress) return;
+    setActionInProgress(gapId + ':stop');
+    try {
+      const res = await fetch(`${API_BASE}/api/workflow/${gapId}/stop`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Stop failed');
+      await fetchHistory();
+    } catch (err) {
+      alert(`Stop failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const handleDelete = async (e: React.MouseEvent, gapId: string) => {
+    e.stopPropagation();
+    if (actionInProgress) return;
+    if (!confirm(`Delete workflow ${gapId.substring(0, 8).toUpperCase()}? This cannot be undone.`)) return;
+    setActionInProgress(gapId + ':delete');
+    try {
+      const res = await fetch(`${API_BASE}/api/workflow/${gapId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+      // Notify parent if the deleted one was selected
+      if (gapId === activeGapId) onWorkflowDeleted?.(gapId);
+      await fetchHistory();
+    } catch (err) {
+      alert(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setActionInProgress(null);
+    }
+  };
 
   const statusIcon = (status: string) => {
     switch (status) {
@@ -69,11 +105,13 @@ const WorkflowHistory: React.FC<WorkflowHistoryProps> = ({
       <div className="history-list">
         {workflows.map((wf) => {
           const isActive = activeGapId === wf.gapId;
+          const isRunning = wf.status === 'running';
           const shortId = wf.gapId.substring(0, 8).toUpperCase();
           const time = new Date(wf.createdAt).toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
           });
+          const isBusy = actionInProgress?.startsWith(wf.gapId);
 
           return (
             <div
@@ -89,6 +127,29 @@ const WorkflowHistory: React.FC<WorkflowHistoryProps> = ({
               <span className={`history-status history-status-${wf.status}`}>
                 {wf.status}
               </span>
+
+              {/* Action buttons */}
+              <div className="history-actions" onClick={(e) => e.stopPropagation()}>
+                {isRunning && (
+                  <button
+                    className="history-btn history-btn-stop"
+                    title="Stop workflow"
+                    disabled={!!isBusy}
+                    onClick={(e) => handleStop(e, wf.gapId)}
+                  >
+                    {actionInProgress === wf.gapId + ':stop' ? '…' : '⏹'}
+                  </button>
+                )}
+                <button
+                  className="history-btn history-btn-delete"
+                  title="Delete workflow"
+                  disabled={!!isBusy}
+                  onClick={(e) => handleDelete(e, wf.gapId)}
+                >
+                  {actionInProgress === wf.gapId + ':delete' ? '…' : '🗑'}
+                </button>
+              </div>
+
               {isActive && <span className="history-active-marker">←</span>}
             </div>
           );

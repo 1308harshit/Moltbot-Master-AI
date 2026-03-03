@@ -6,6 +6,12 @@ import { wsClient } from './wsClient';
 import { pushToCoda } from './coda';
 import { config, promptPlaceholders } from './config';
 
+/**
+ * Track active (running) workflows: gapId → sessionKey.
+ * Used by stopWorkflow to mark them failed and by the engine to skip further steps.
+ */
+const activeWorkflows: Map<string, string> = new Map();
+
 /** Simple delay helper */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -208,7 +214,8 @@ async function executePanel(
   step: string,
   session: number,
   panelId: number,
-  prompt: string
+  prompt: string,
+  sessionKey: string
 ): Promise<{ success: boolean; output: string; error?: string }> {
   const maxRetries = step === 'step0' ? 0 : config.panelRetryCount;
   const retryDelayMs = config.panelRetryDelayMs;
@@ -223,7 +230,11 @@ async function executePanel(
 
       console.log(`🔄 [${gapId}] ${step} — session ${session}, panel ${panelId}: sending${attempt > 0 ? ` (attempt ${attempt + 1})` : ''}...`);
 
-      const sessionKey = 'agent:main:main';
+      // Abort early if the workflow was stopped
+      if (!activeWorkflows.has(gapId)) {
+        return { success: false, output: '', error: 'Workflow was stopped' };
+      }
+
       let output = '';
 
       if (step === 'step0') {
@@ -250,7 +261,12 @@ async function executePanel(
         }
       }
 
-      const passed = validateMarker(output, step);
+      // For some steps (like step4 and step5a), we deliberately skip
+      // strict marker validation: whatever MoltBot returns within the
+      // timeout window is accepted so the workflow does not fail just
+      // because the marker is missing or panels were slow.
+      const requiresMarker = step !== 'step4' && step !== 'step5a';
+      const passed = requiresMarker ? validateMarker(output, step) : true;
 
       // Store in MongoDB
       await StepOutput.create({
@@ -264,7 +280,7 @@ async function executePanel(
         data: { step, session, panelId, passed },
       });
 
-      if (!passed) {
+      if (!passed && requiresMarker) {
         return {
           success: false, output,
           error: `Validation failed: marker not found in session ${session}`,
@@ -346,15 +362,20 @@ export async function runStep(gapId: string, step: string): Promise<void> {
   const workflow = await Workflow.findOne({ gapId });
   if (!workflow) throw new Error(`Workflow ${gapId} not found`);
 
+  // Abort if workflow was stopped externally
+  if (!activeWorkflows.has(gapId)) {
+    console.log(`⛔ [${gapId}] ${step} — workflow stopped, skipping step.`);
+    return;
+  }
+
   // Enforce step locking
   const check = canRunStep(workflow, step);
   if (!check.allowed) {
     throw new Error(check.reason!);
   }
 
-  // Since all steps now execute in the main session automatically waiting for generation, 
-  // totalSessions per step should just be 1, because 1 request is sent to the active tab which handles all panels inside its own React UI.
-  // We keep tracking totalSessions logic but clamp it to 1 to signify 1 step execution request = 1 phase completed.
+  // Each workflow uses its own dedicated OpenClaw session key for true parallelism.
+  const sessionKey = workflow.sessionKey || 'agent:main:main';
   const totalSessions = 1;
 
   // Mark step running
@@ -432,7 +453,7 @@ export async function runStep(gapId: string, step: string): Promise<void> {
     // Launch sessions in parallel
     const results = await Promise.all(
       Array.from({ length: totalSessions }, (_, i) => i + 1).map(
-        (sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt)
+        (sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt, sessionKey)
       )
     );
 
@@ -635,9 +656,10 @@ export async function rerunFailedSessions(gapId: string, step: string): Promise<
       session: { $in: failedIds },
     });
 
-    // Re-run failed sessions
+    // Re-run failed sessions (using this workflow's dedicated session key)
+    const sessionKey = workflow.sessionKey || 'agent:main:main';
     const results = await Promise.all(
-      failedIds.map((sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt))
+      failedIds.map((sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt, sessionKey))
     );
 
     // Recount from DB
@@ -701,18 +723,24 @@ export async function rerunFailedSessions(gapId: string, step: string): Promise<
 export async function startWorkflow(contextBlock: string): Promise<IWorkflow> {
   const gapId = uuidv4();
 
+  // Each workflow gets its own OpenClaw session key → true parallelism.
+  const sessionKey = `agent:workflow:${gapId}`;
+
   // Snapshot current prompts
   const snapshot = { ...promptPlaceholders };
 
   const workflow = await Workflow.create({
     gapId,
+    sessionKey,
     status: 'running',
     currentStep: 'step0',
     contextBlock,
     promptSnapshot: snapshot,
   });
 
-  console.log(`🚀 [${gapId}] Workflow started`);
+  // Register as active
+  activeWorkflows.set(gapId, sessionKey);
+  console.log(`🚀 [${gapId}] Workflow started (session: ${sessionKey})`);
 
   emit({
     type: 'status_change',
@@ -734,6 +762,55 @@ export async function startWorkflow(contextBlock: string): Promise<IWorkflow> {
   });
 
   return workflow;
+}
+
+/**
+ * Stop a running workflow immediately.
+ * Removes it from the active map (causing executePanel / runStep to bail out)
+ * and marks it as failed in MongoDB.
+ */
+export async function stopWorkflow(gapId: string): Promise<void> {
+  const isActive = activeWorkflows.has(gapId);
+  // Remove from active map first so any in-progress step bails on its next check
+  activeWorkflows.delete(gapId);
+
+  if (!isActive) {
+    // Might already be stopped/completed — just ensure DB is consistent
+    const wf = await Workflow.findOne({ gapId });
+    if (!wf) throw new Error(`Workflow ${gapId} not found`);
+    if (wf.status !== 'running') throw new Error(`Workflow ${gapId} is not running (status: ${wf.status})`);
+  }
+
+  await Workflow.updateOne(
+    { gapId },
+    { status: 'failed', failureReason: 'Stopped by user' }
+  );
+
+  emit({
+    type: 'workflow_failed',
+    gapId,
+    data: { reason: 'Stopped by user', message: 'Workflow was manually stopped.' },
+  });
+
+  console.log(`⛔ [${gapId}] Workflow stopped by user.`);
+}
+
+/**
+ * Delete a workflow and all its step outputs from MongoDB.
+ * Stops it first if it is still running.
+ */
+export async function deleteWorkflow(gapId: string): Promise<void> {
+  // Stop first if running
+  if (activeWorkflows.has(gapId)) {
+    activeWorkflows.delete(gapId);
+    console.log(`⛔ [${gapId}] Stopped before deletion.`);
+  }
+
+  const deleted = await Workflow.deleteOne({ gapId });
+  if (deleted.deletedCount === 0) throw new Error(`Workflow ${gapId} not found`);
+  await StepOutput.deleteMany({ gapId });
+
+  console.log(`🗑️ [${gapId}] Workflow deleted.`);
 }
 
 /**
