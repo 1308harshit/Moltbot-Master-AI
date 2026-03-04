@@ -3,14 +3,21 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { EventEmitter } from 'node:events';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from './config';
+
+/**
+ * EventEmitter for real-time streaming.
+ * Emits 'chunk' events: { runId, sessionKey, text }
+ * Emits 'final' events: { runId, sessionKey, text }
+ */
+export const streamEvents = new EventEmitter();
 
 interface PendingRequest {
   resolve: (response: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
-  expectFinal: boolean;
 }
 
 type GatewayEventFrame = {
@@ -154,6 +161,7 @@ export class WSClient {
       resolve: (text: string) => void;
       reject: (err: Error) => void;
       latestText: string;
+      sessionKey: string;
       timer: NodeJS.Timeout;
     }
   > = new Map();
@@ -255,6 +263,8 @@ export class WSClient {
       await this.connect();
     }
 
+    // chat.send is non-blocking in OpenClaw 2026.3.1+.
+    // It resolves immediately with { runId, status: 'started' }.
     const payload = await this.request(
       'chat.send',
       {
@@ -267,7 +277,6 @@ export class WSClient {
       { timeoutMs }
     );
 
-    // chat.send responds quickly with {runId, status}. The actual assistant output is streamed via chat.event.
     const runId =
       payload && typeof payload === 'object' && typeof (payload as Record<string, unknown>).runId === 'string'
         ? ((payload as Record<string, unknown>).runId as string)
@@ -278,10 +287,11 @@ export class WSClient {
       return typeof payload === 'string' ? payload : JSON.stringify(payload);
     }
 
-    return await this.waitForRun(runId, timeoutMs);
+    console.log(`📡 chat.send acknowledged — runId=${runId}, session=${sessionKey}, waiting for stream...`);
+    return await this.waitForRun(runId, timeoutMs, sessionKey);
   }
 
-  private waitForRun(runId: string, timeoutMs: number): Promise<string> {
+  private waitForRun(runId: string, timeoutMs: number, sessionKey = ''): Promise<string> {
     const existing = this.pendingRuns.get(runId);
     if (existing) {
       return new Promise<string>((resolve, reject) => {
@@ -307,7 +317,7 @@ export class WSClient {
         reject(new Error(`Timeout waiting for run ${runId}`));
       }, timeoutMs);
 
-      this.pendingRuns.set(runId, { resolve, reject, latestText: '', timer });
+      this.pendingRuns.set(runId, { resolve, reject, latestText: '', sessionKey, timer });
     });
   }
 
@@ -317,7 +327,7 @@ export class WSClient {
   private async request(
     method: string,
     params?: unknown,
-    opts?: { expectFinal?: boolean; timeoutMs?: number }
+    opts?: { timeoutMs?: number }
   ): Promise<unknown> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
@@ -332,7 +342,7 @@ export class WSClient {
         reject(new Error(`Timeout waiting for response (method: ${method}, id: ${id})`));
       }, opts?.timeoutMs ?? 120000);
 
-      this.pendingRequests.set(id, { resolve, reject, timer, expectFinal: opts?.expectFinal === true });
+      this.pendingRequests.set(id, { resolve, reject, timer });
 
       this.ws!.send(JSON.stringify(frame), (err) => {
         if (err) {
@@ -423,7 +433,7 @@ export class WSClient {
 
         if (evt.event === 'chat' || evt.event === 'chat.event') {
           const payload = evt.payload as
-            | { runId?: unknown; state?: unknown; message?: unknown; errorMessage?: unknown }
+            | { runId?: unknown; sessionKey?: unknown; type?: unknown; state?: unknown; message?: unknown; text?: unknown; errorMessage?: unknown }
             | undefined;
           const runId = payload && typeof payload.runId === 'string' ? payload.runId : null;
           if (!runId) return;
@@ -431,7 +441,15 @@ export class WSClient {
           const pending = this.pendingRuns.get(runId);
           if (!pending) return;
 
-          const state = payload && typeof payload.state === 'string' ? payload.state : '';
+          // FIX: sessionKey filtering — the gateway broadcasts chat events to ALL
+          // connected clients (OpenClaw Issue #32579). Without this check, parallel
+          // workflows receive each other's events and scramble the pipeline.
+          const incomingSession = payload && typeof payload.sessionKey === 'string' ? payload.sessionKey : null;
+          if (incomingSession && pending.sessionKey && incomingSession !== pending.sessionKey) {
+            return; // Not our session — ignore
+          }
+
+          // Error shortcut
           if (payload?.errorMessage && typeof payload.errorMessage === 'string') {
             clearTimeout(pending.timer);
             this.pendingRuns.delete(runId);
@@ -439,7 +457,16 @@ export class WSClient {
             return;
           }
 
+          // Determine event kind: new-style payload.type ('delta'|'final') or old-style payload.state
+          const evtType = payload && typeof payload.type === 'string' ? payload.type : '';
+          const state = payload && typeof payload.state === 'string' ? payload.state : '';
+          const isDelta = evtType === 'delta';
+          const isFinal = evtType === 'final' || state === 'final' || state === 'aborted' || state === 'error';
+
+          // Extract text chunk from various payload shapes
           const chunk = (() => {
+            // Direct text field (new streaming format)
+            if (payload?.text && typeof payload.text === 'string') return payload.text;
             const msg = payload?.message;
             if (typeof msg === 'string') return msg;
             if (!msg || typeof msg !== 'object') return '';
@@ -453,16 +480,44 @@ export class WSClient {
                 .map((c) => c.text)
                 .join('');
             }
-            // fallback: keep something for debugging
             return JSON.stringify(msg);
           })();
 
-          if (chunk) pending.latestText = chunk;
+          if (chunk) {
+            if (isDelta) {
+              // Streaming delta: append chunk to accumulated text
+              pending.latestText += chunk;
+              streamEvents.emit('chunk', { runId, sessionKey: pending.sessionKey, text: chunk });
+            } else {
+              // Final or old-style full replacement
+              pending.latestText = chunk;
+            }
+          }
 
-          if (state === 'final' || state === 'aborted' || state === 'error') {
+          if (isFinal) {
+            console.log(`✅ Run ${runId} complete (${pending.latestText.length} chars)`);
+            streamEvents.emit('final', { runId, sessionKey: pending.sessionKey, text: pending.latestText });
             clearTimeout(pending.timer);
             this.pendingRuns.delete(runId);
             pending.resolve(pending.latestText);
+          }
+          return;
+        }
+
+        // Handle lifecycle error events
+        if (evt.event === 'lifecycle') {
+          const payload = evt.payload as { runId?: unknown; phase?: unknown; error?: unknown } | undefined;
+          const runId = payload && typeof payload.runId === 'string' ? payload.runId : null;
+          if (!runId) return;
+          const pending = this.pendingRuns.get(runId);
+          if (!pending) return;
+
+          if (payload?.phase === 'error') {
+            const errMsg = typeof payload.error === 'string' ? payload.error : `Lifecycle error for run ${runId}`;
+            console.error(`❌ Run ${runId} lifecycle error: ${errMsg}`);
+            clearTimeout(pending.timer);
+            this.pendingRuns.delete(runId);
+            pending.reject(new Error(errMsg));
           }
           return;
         }
@@ -474,11 +529,8 @@ export class WSClient {
         const pending = this.pendingRequests.get(resFrame.id);
         if (!pending) return;
 
-        const payload = resFrame.payload as { status?: unknown; type?: unknown } | undefined;
-        if (pending.expectFinal && payload?.status === 'accepted') {
-          return; // keep waiting for final response
-        }
-
+        // In OpenClaw 2026.3.1+, chat.send is non-blocking.
+        // Resolve immediately — no more waiting for 'accepted' status.
         clearTimeout(pending.timer);
         this.pendingRequests.delete(resFrame.id);
 
@@ -492,6 +544,7 @@ export class WSClient {
         }
 
         // If this is the connect response (hello-ok), mark connected
+        const payload = resFrame.payload as { type?: unknown } | undefined;
         if (!this.isConnected && payload && payload.type === 'hello-ok') {
           this.isConnected = true;
           this.reconnectAttempts = 0;
@@ -534,11 +587,18 @@ export class WSClient {
    * Reject all pending requests (called on disconnect).
    */
   private rejectAllPending(error: Error): void {
-    for (const [requestId, pending] of this.pendingRequests) {
+    for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pendingRequests.clear();
+
+    // Also reject pending streaming runs
+    for (const [runId, pending] of this.pendingRuns) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pendingRuns.clear();
   }
 
   /**
