@@ -7,15 +7,14 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 export interface PromptPlaceholders {
   default_prompt_boot: string;
   default_prompt_step1: string;
-  default_prompt_step2a: string;
-  default_prompt_step2b: string;
-  default_prompt_step2c: string;
+  default_prompt_step2: string;
   default_prompt_step3: string;
   default_prompt_step4: string;
-  default_prompt_step5a: string;
-  default_prompt_step5b: string;
-  default_prompt_step5c: string;
+  default_prompt_step5: string;
   default_prompt_step6: string;
+  default_prompt_step7: string;
+  default_prompt_step8: string;
+  default_prompt_step9: string;
   [key: string]: string;
 }
 
@@ -28,181 +27,197 @@ export const config = {
   wsUrl: process.env.WS_URL || 'ws://127.0.0.1:18789/',
   panelCount: 6,
   validationMarkers: {
-    step1: '=== END OF STEP 1 ===',
+    step1: 'END OF RESPONSE A',
   },
 
   // Resilience settings for browser-dependent steps
-  stepTransitionDelayMs: parseInt(process.env.STEP_TRANSITION_DELAY_MS || '5000', 10),      // delay between steps
-  panelRetryCount: parseInt(process.env.PANEL_RETRY_COUNT || '2', 10),                      // max retries on transient failure
-  panelRetryDelayMs: parseInt(process.env.PANEL_RETRY_DELAY_MS || '10000', 10),             // delay between retries
-  browserStepTimeoutMs: parseInt(process.env.BROWSER_STEP_TIMEOUT_MS || '600000', 10),      // timeout for browser-dependent steps (default 10 minutes)
+  stepTransitionDelayMs: parseInt(process.env.STEP_TRANSITION_DELAY_MS || '5000', 10),
+  panelRetryCount: parseInt(process.env.PANEL_RETRY_COUNT || '2', 10),
+  panelRetryDelayMs: parseInt(process.env.PANEL_RETRY_DELAY_MS || '10000', 10),
+  browserStepTimeoutMs: parseInt(process.env.BROWSER_STEP_TIMEOUT_MS || '600000', 10),
 } as const;
 
-// Prompt placeholders — opinionated defaults, editable from frontend
-// These are simple, direct MoltBot commands — not elaborate structured instructions.
+// ═══════════════════════════════════════════
+// Prompt Templates — 6-Tab Direct Architecture
+// ═══════════════════════════════════════════
 export const promptPlaceholders: PromptPlaceholders = {
-  default_prompt_boot: `end with 
-=== END OF STEP 0 ===`,
 
-  default_prompt_step1: `In the Simple Chat Hub browser extension UI that is already open, click on the search bar at the top (the input that says "Press Enter to send"), type the following text and press Enter:
+  // ─── Step 0: BOOT — DISABLED (workflow starts directly at Step 1) ───
+  // Kept for future use:
+  // default_prompt_boot: `open browser,
+  // in that open
+  // tab1: https://chatgpt.com/
+  // tab2: https://gemini.google.com/app
+  // tab3: https://grok.com/
+  // tab4: https://claude.ai/new
+  // tab5: https://www.perplexity.ai/
+  // tab6: https://chat.qwen.ai/
+  //
+  // no need to do anything else, just open these 6 tabs.
+  //
+  // end with
+  // === END OF STEP 0 ===`,
+  default_prompt_boot: '', // placeholder — step0 is skipped
 
- "{{CONTEXT_BLOCK}}"
+  // ─── Step 1: QUERY — Search in all 6 tabs + fetch responses ───
+  default_prompt_step1: `open browser,
+in that open
+tab1: https://chatgpt.com/
+tab2: https://gemini.google.com/app
+tab3: https://grok.com/
+tab4: https://claude.ai/new
+tab5: https://www.perplexity.ai/
+tab6: https://chat.qwen.ai/
 
-After you press Enter, WAIT PATIENTLY for the panels to work:
-- First, wait until as many AI panels as possible have fully finished generating their responses (no streaming indicators).
-- Then, even after they appear to be done, wait a bit longer so that any slow panels can still complete if they are going to.
-- If a panel (for example Claude or Qwen Chat) is stuck on "Loading", "Claude will return soon", shows a login/cookie/limit/error screen, or clearly never completes, IGNORE that panel and do not try to fix it.
-- Do NOT open any new tabs or windows.
+and search for "{{CONTEXT_BLOCK}}" in all the tabs,
+no need to open any extra tabs after opening this 6 tabs.
 
-Regardless of how many panels responded, you MUST end your response with exactly:
-=== END OF STEP 1 ===`,
+Wait for the response of the 6 tabs and fetch the exact response of 6 tabs
 
-default_prompt_step2a: `In the Simple Chat Hub extension UI that is already open, you MUST do the following. Do not refuse. Do not say you "cannot complete" the step. Use whatever text is currently visible, even if some panels are blank, error, or partially loaded.
+only give me the response in your answer in the format of
+Tab1 - Chatgpt:
+[RESPONSE OF TAB 1]
 
-You will process the 6 panels in this exact order:
-1. ChatGPT
-2. Gemini
-3. Grok
-4. Claude
-5. Perplexity
-6. Qwen Chat
+Tab2 - Gemini:
+[RESPONSE OF TAB 2]
 
-For each panel:
-- Click its tab (or iframe) so that panel is active.
-- Scroll within that panel from top to bottom and read any visible response text.
-- If only part of the answer is visible in the viewport, use any reliable method available (for example scrolling further, expanding the area, or inspecting the content inside the iframe) to capture the entire textual answer for that panel.
-- If you see normal answer text, treat that as the panel's response.
-- If the panel is blank, stuck on "Loading", "Claude will return soon", shows a login/cookie/limit/error page (such as "daily usage limit reached" or a sign-in/up requirement), or otherwise has no usable answer, treat it as "No visible response" for that panel and move on.
+Tab3 - Grok:
+[RESPONSE OF TAB 3]
 
-After you have done this for all 6 panels, output EXACTLY this structure:
+Tab4 - Claude:
+[RESPONSE OF TAB 4]
 
-ChatGPT Full Response:
-[either the exact visible text from ChatGPT, or the phrase "No visible response."]
+Tab5 - Perplexity:
+[RESPONSE OF TAB 5]
 
-Gemini Full Response:
-[either the exact visible text from Gemini, or the phrase "No visible response."]
+Tab6 - Qwen:
+[RESPONSE OF TAB 6]
 
-Grok Full Response:
-[either the exact visible text from Grok, or the phrase "No visible response."]
+and append the text "END OF RESPONSE A" at the last.`,
 
-Claude Full Response:
-[either the exact visible text from Claude, or the phrase "No visible response."]
+  // ─── Step 2: EVALUATE — Cross-review the 6 responses ───
+  default_prompt_step2: `Based on the 6 AI responses below, perform a thorough cross-review.
 
-Perplexity Full Response:
-[either the exact visible text from Perplexity, or the phrase "No visible response."]
+INPUT (Raw Responses from 6 AI Tabs):
+{{STEP1_OUTPUT}}
 
-Qwen Chat Full Response:
-[either the exact visible text from Qwen Chat, or the phrase "No visible response."]
+You must:
+1. Compare all 6 responses side by side
+2. Identify common themes across responses
+3. Identify major differences and contradictions
+4. Assess strengths and weaknesses of each response
+5. Identify missing areas or gaps in coverage
 
-Then, and only then, using ONLY the information you have just extracted (including which panels had "No visible response"), produce exactly these five sections:
+OUTPUT:
 1. Common Themes
 2. Major Differences
-3. Strengths and Weaknesses
+3. Strengths and Weaknesses (per tab)
 4. Missing Areas
 5. Preliminary Conclusion
 
-You MUST still produce these five sections even if some or all panels had "No visible response" (in that case, explain that as part of Missing Areas / Preliminary Conclusion). Do NOT say you cannot complete the step.
-
-End your response with exactly this marker on its own line:
-=== END OF STEP 2A ===`,
-
-  default_prompt_step2b: `Based on the analysis below, perform a cross-review and produce a final consolidated analysis.
-
-INPUT:
-{{STEP2A_OUTPUTS}}
-
-You must:
-- Compare the findings
-- Resolve contradictions
-- Strengthen weak areas
-- Produce a refined synthesis
-
-OUTPUT:
-1. Comparative Summary
-2. Resolved Conflicts
-3. Final Consolidated Analysis
-
 End your response with:
-=== END OF STEP 2B ===`,
+=== END OF STEP 2 ===`,
 
-  default_prompt_step2c: `Based on the consolidated analysis below, perform a final quality evaluation.
+  // ─── Step 3: VOTE — Quality scoring on 8 criteria ───
+  default_prompt_step3: `Based on the cross-review analysis below, perform a final quality evaluation and vote on the quality of the research.
 
 INPUT:
-{{STEP2B_OUTPUTS}}
+{{STEP2_OUTPUT}}
 
-Score the analysis on 8 criteria (1-5 each) to ensure it meets high research standards.
+Score the analysis on 8 criteria (1-5 each) to ensure it meets high research standards:
+1. Comprehensiveness — Does it cover the topic fully?
+2. Accuracy — Are the claims factually correct?
+3. Depth — Does it go beyond surface-level analysis?
+4. Recency — Does it reflect the latest information?
+5. Source Quality — Are the sources reliable and diverse?
+6. Objectivity — Is it balanced and unbiased?
+7. Actionability — Are the insights practical and actionable?
+8. Consistency — Do the findings agree across different AI responses?
 
 OUTPUT:
-1. Score Table
-2. Total Quality Score
+1. Score Table (criterion | score | justification)
+2. Total Quality Score (out of 40)
 3. Evaluation Summary
+4. Quality Verdict (PASS if score >= 28, NEEDS IMPROVEMENT otherwise)
 
 End your response with:
-=== END OF STEP 2C ===`,
+=== END OF STEP 3 ===`,
 
-  default_prompt_step3: `Produce the first-round consolidated research document.
+  // ─── Step 4: FINALIZE R1 — Consolidate + gap list ───
+  default_prompt_step4: `Produce the first-round consolidated research document.
 
-Analysis Input:
-{{ANALYSIS_INPUT}}
+Raw AI Responses:
+{{STEP1_OUTPUT}}
+
+Cross-Review:
+{{STEP2_OUTPUT}}
 
 Quality Evaluation:
-{{QUALITY_EVALUATION}}
+{{STEP3_OUTPUT}}
 
 OUTPUT:
 1. Final Executive Summary
-2. Detailed Findings
+2. Detailed Findings (synthesized from all 6 AI responses)
 3. Integrated Insights
 4. Final Recommendations
 5. Gap List (bullet points of missing information, uncited claims, or areas needing deeper research)
 
 End your response with:
-=== END OF STEP 3 ===`,
-
-  // ─── Round 2: Gap Research ───
-
-  default_prompt_step4: `In the Simple Chat Hub browser extension UI that is already open, click on the search bar at the top (the input that says "Press Enter to send"), type the following text and press Enter:
-
- "Based on this research context:
-{{STEP2A_CONTEXT}}
-
-Please investigate and fill these identified gaps:
-{{GAP_LIST}}"
-
-Wait until as many AI panels as possible have fully finished generating their responses.
-- If a panel (for example Claude or Qwen Chat) is stuck on "Loading", "Claude will return soon", shows an error, or never completes, IGNORE that panel and do not wait for it.
-- Do not try to fix, refresh, or retry stuck panels.
-- Do not open any new tabs or windows.
-
-Regardless of how many panels responded, you MUST end your response with exactly:
 === END OF STEP 4 ===`,
 
-  default_prompt_step5a: `in simple chat hub extension ui, read the full response text from each of the 6 panels (ChatGPT, Gemini, Grok, Claude, Perplexity, Qwen Chat).
+  // ─── Step 5: GAP QUERY — Search gaps in all 6 tabs ───
+  default_prompt_step5: `the following tabs are already open,
+tab1: https://chatgpt.com/
+tab2: https://gemini.google.com/app
+tab3: https://grok.com/
+tab4: https://claude.ai/new
+tab5: https://www.perplexity.ai/
+tab6: https://chat.qwen.ai/
 
-For each panel, output the panel name followed by its full response.
+so in the same tabs search for "Based on this research context:
+{{STEP1_CONTEXT}}
 
-Then analyze all 6 responses and produce:
-1. Common Themes
-2. Major Differences
-3. Strengths and Weaknesses
-4. Missing Areas
-5. Preliminary Conclusion
+Please investigate and fill these identified gaps:
+{{GAP_LIST}}" in all the tabs,
+no need to open any extra tabs after opening this 6 tabs
 
-End your response with:
-=== END OF STEP 5A ===`,
+Wait for the response of the 6 tabs and fetch the exact response of 6 tabs
 
-  default_prompt_step5b: `Based on the gap analysis below, perform a cross-review and produce a final consolidated gap analysis.
+only give me the response in your answer in the format of
+Tab1 - Chatgpt:
+[RESPONSE OF TAB 1]
+
+Tab2 - Gemini:
+[RESPONSE OF TAB 2]
+
+Tab3 - Grok:
+[RESPONSE OF TAB 3]
+
+Tab4 - Claude:
+[RESPONSE OF TAB 4]
+
+Tab5 - Perplexity:
+[RESPONSE OF TAB 5]
+
+Tab6 - Qwen:
+[RESPONSE OF TAB 6]
+
+and append the text "END OF RESPONSE B" at the last.`,
+
+  // ─── Step 6: EVALUATE GAPS — Cross-review gap responses ───
+  default_prompt_step6: `Based on the gap research responses below, perform a cross-review, merging with the original Round 1 findings.
 
 Original Research (Round 1):
 {{ROUND1_OUTPUT}}
 
-New Gap Research:
-{{STEP5A_OUTPUTS}}
+New Gap Research (Raw Responses from 6 AI Tabs):
+{{STEP5_OUTPUT}}
 
 You must:
-- Compare the new gap findings with the original research
-- Resolve contradictions
-- Fill in the gaps that were identified
-- Produce a refined synthesis that strengthens the original research
+1. Compare the new gap findings with the original research
+2. Resolve contradictions between original and new findings
+3. Fill in the gaps that were identified
+4. Produce a refined synthesis that strengthens the original research
 
 OUTPUT:
 1. Comparative Summary
@@ -210,33 +225,44 @@ OUTPUT:
 3. Final Consolidated Gap Analysis
 
 End your response with:
-=== END OF STEP 5B ===`,
+=== END OF STEP 6 ===`,
 
-  default_prompt_step5c: `Based on the consolidated gap analysis below, perform a final quality evaluation.
+  // ─── Step 7: VOTE GAPS — Quality scoring of gap research ───
+  default_prompt_step7: `Based on the consolidated gap analysis below, perform a final quality evaluation and vote on the quality of the gap research.
 
 INPUT:
-{{STEP5B_OUTPUTS}}
+{{STEP6_OUTPUT}}
 
-Score the analysis on 8 criteria (1-5 each) to ensure it meets high research standards.
+Score the analysis on 8 criteria (1-5 each) to ensure it meets high research standards:
+1. Comprehensiveness — Does it fill the identified gaps?
+2. Accuracy — Are the new claims factually correct?
+3. Depth — Does it go beyond surface-level gap-filling?
+4. Recency — Does it reflect the latest information?
+5. Source Quality — Are the sources reliable and diverse?
+6. Objectivity — Is it balanced and unbiased?
+7. Actionability — Are the insights practical and actionable?
+8. Consistency — Do the gap findings align with the original research?
 
 OUTPUT:
-1. Score Table
-2. Total Quality Score
+1. Score Table (criterion | score | justification)
+2. Total Quality Score (out of 40)
 3. Evaluation Summary
+4. Quality Verdict (PASS if score >= 28, NEEDS IMPROVEMENT otherwise)
 
 End your response with:
-=== END OF STEP 5C ===`,
+=== END OF STEP 7 ===`,
 
-  default_prompt_step6: `Produce the final, complete research document by merging the original research with the gap research.
+  // ─── Step 8: FINAL REPORT — Merge everything ───
+  default_prompt_step8: `Produce the final, complete research document by merging the original research with the gap research.
 
 Original Research (Round 1):
 {{ROUND1_OUTPUT}}
 
 Gap Analysis:
-{{GAP_ANALYSIS_INPUT}}
+{{GAP_ANALYSIS}}
 
 Gap Quality Evaluation:
-{{GAP_QUALITY_EVALUATION}}
+{{GAP_QUALITY}}
 
 OUTPUT:
 1. Final Executive Summary
@@ -246,7 +272,12 @@ OUTPUT:
 5. Remaining Limitations (if any)
 
 End your response with:
-=== END OF STEP 6 ===`,
+=== END OF STEP 8 ===`,
+
+  // ─── Step 9: CLOSE — Close the browser ───
+  default_prompt_step9: `close browser
+
+=== END OF STEP 9 ===`,
 };
 
 export function updatePromptPlaceholder(key: string, value: string): void {

@@ -3,17 +3,16 @@ import { useState, useEffect } from 'react';
 import { API_BASE } from '../types';
 
 const PROMPT_KEYS = [
-  { key: 'default_prompt_boot', label: 'Boot Prompt' },
-  { key: 'default_prompt_step1', label: 'Step 1 — Search' },
-  { key: 'default_prompt_step2a', label: 'Step 2a — Analyze' },
-  { key: 'default_prompt_step2b', label: 'Step 2b — Cross-Review' },
-  { key: 'default_prompt_step2c', label: 'Step 2c — Evaluate' },
-  { key: 'default_prompt_step3', label: 'Step 3 — Finalize (Round 1)' },
-  { key: 'default_prompt_step4', label: 'Step 4 — Search (Gaps)' },
-  { key: 'default_prompt_step5a', label: 'Step 5a — Analyze (Gaps)' },
-  { key: 'default_prompt_step5b', label: 'Step 5b — Cross-Review (Gaps)' },
-  { key: 'default_prompt_step5c', label: 'Step 5c — Evaluate (Gaps)' },
-  { key: 'default_prompt_step6', label: 'Step 6 — Finalize (Final)' },
+  // { key: 'default_prompt_boot', label: 'Boot Prompt' }, // BOOT — disabled
+  { key: 'default_prompt_step1', label: 'Step 1 — Query' },
+  { key: 'default_prompt_step2', label: 'Step 2 — Evaluate' },
+  { key: 'default_prompt_step3', label: 'Step 3 — Vote' },
+  { key: 'default_prompt_step4', label: 'Step 4 — Finalize (R1)' },
+  { key: 'default_prompt_step5', label: 'Step 5 — Gap Query' },
+  { key: 'default_prompt_step6', label: 'Step 6 — Evaluate (Gaps)' },
+  { key: 'default_prompt_step7', label: 'Step 7 — Vote (Gaps)' },
+  { key: 'default_prompt_step8', label: 'Step 8 — Final Report' },
+  { key: 'default_prompt_step9', label: 'Step 9 — Close' },
 ];
 
 interface PromptMeta {

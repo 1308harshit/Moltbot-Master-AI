@@ -62,32 +62,31 @@ export interface WSEvent {
 
 export const STEP_DEFINITIONS = [
   // Round 1: Initial Research
-  { key: 'step0',  label: 'Step 0 — BOOT',              parallelCount: 1, description: 'Environment boot / browser prep' },
-  { key: 'step1',  label: 'Step 1 — SEARCH',            parallelCount: 1, description: 'Search context in SimpleChatHub' },
-  { key: 'step2a', label: 'Step 2a — ANALYZE',           parallelCount: 1, description: 'Read and analyze 6 panel responses' },
-  { key: 'step2b', label: 'Step 2b — CROSS-REVIEW',      parallelCount: 1, description: 'Cross-review and consolidate' },
-  { key: 'step2c', label: 'Step 2c — EVALUATE',          parallelCount: 1, description: 'Quality evaluation' },
-  { key: 'step3',  label: 'Step 3 — FINALIZE (Round 1)', parallelCount: 1, description: 'First finalization with gap list' },
+  // { key: 'step0', label: 'Step 0 — BOOT',             parallelCount: 1, description: 'Open browser + 6 AI tabs' }, // BOOT — disabled
+  { key: 'step1', label: 'Step 1 — QUERY',            parallelCount: 1, description: 'Query all 6 tabs + fetch responses' },
+  { key: 'step2', label: 'Step 2 — EVALUATE',         parallelCount: 1, description: 'Cross-review the 6 responses' },
+  { key: 'step3', label: 'Step 3 — VOTE',             parallelCount: 1, description: 'Quality scoring (8 criteria)' },
+  { key: 'step4', label: 'Step 4 — FINALIZE (R1)',    parallelCount: 1, description: 'Consolidate findings + gap list' },
   // Round 2: Gap Research
-  { key: 'step4',  label: 'Step 4 — SEARCH (Gaps)',      parallelCount: 1, description: 'Search gap topics in SimpleChatHub' },
-  { key: 'step5a', label: 'Step 5a — ANALYZE (Gaps)',     parallelCount: 1, description: 'Read and analyze gap responses' },
-  { key: 'step5b', label: 'Step 5b — CROSS-REVIEW (Gaps)',parallelCount: 1, description: 'Cross-review gap findings with Round 1' },
-  { key: 'step5c', label: 'Step 5c — EVALUATE (Gaps)',    parallelCount: 1, description: 'Quality evaluation of gap research' },
-  { key: 'step6',  label: 'Step 6 — FINALIZE (Final)',   parallelCount: 1, description: 'Final complete research document' },
+  { key: 'step5', label: 'Step 5 — GAP QUERY',        parallelCount: 1, description: 'Query gap topics in all 6 tabs' },
+  { key: 'step6', label: 'Step 6 — EVALUATE (Gaps)',   parallelCount: 1, description: 'Cross-review gap responses' },
+  { key: 'step7', label: 'Step 7 — VOTE (Gaps)',      parallelCount: 1, description: 'Quality scoring of gap research' },
+  { key: 'step8', label: 'Step 8 — FINAL REPORT',     parallelCount: 1, description: 'Merge R1 + gaps into final document' },
+  // Cleanup
+  { key: 'step9', label: 'Step 9 — CLOSE',            parallelCount: 1, description: 'Close the browser' },
 ];
 
 export const STEP_PREREQUISITES: Record<string, string[]> = {
-  step0:  [],
-  step1:  ['step0'],
-  step2a: ['step1'],
-  step2b: ['step2a'],
-  step2c: ['step2b'],
-  step3:  ['step2c'],
-  step4:  ['step3'],
-  step5a: ['step4'],
-  step5b: ['step5a'],
-  step5c: ['step5b'],
-  step6:  ['step5c'],
+  // step0: [], // BOOT — disabled
+  step1: [],           // No prereqs — workflow starts here
+  step2: ['step1'],
+  step3: ['step2'],
+  step4: ['step3'],
+  step5: ['step4'],
+  step6: ['step5'],
+  step7: ['step6'],
+  step8: ['step7'],
+  step9: ['step8'],
 };
 
 export const API_BASE = 'http://localhost:3001';
