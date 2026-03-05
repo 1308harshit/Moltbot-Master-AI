@@ -61,30 +61,27 @@ export interface WSEvent {
 }
 
 export const STEP_DEFINITIONS = [
-  // Round 1: Initial Research
-  // { key: 'step0', label: 'Step 0 — BOOT',             parallelCount: 1, description: 'Open browser + 6 AI tabs' }, // BOOT — disabled
-  { key: 'step1', label: 'Step 1 — QUERY',            parallelCount: 1, description: 'Query all 6 tabs + fetch responses' },
-  { key: 'step2', label: 'Step 2 — EVALUATE',         parallelCount: 1, description: 'Cross-review the 6 responses' },
-  { key: 'step3', label: 'Step 3 — VOTE',             parallelCount: 1, description: 'Quality scoring (8 criteria)' },
-  { key: 'step4', label: 'Step 4 — FINALIZE (R1)',    parallelCount: 1, description: 'Consolidate findings + gap list' },
-  // Round 2: Gap Research
-  { key: 'step5', label: 'Step 5 — GAP QUERY',        parallelCount: 1, description: 'Query gap topics in all 6 tabs' },
-  { key: 'step6', label: 'Step 6 — EVALUATE (Gaps)',   parallelCount: 1, description: 'Cross-review gap responses' },
-  { key: 'step7', label: 'Step 7 — VOTE (Gaps)',      parallelCount: 1, description: 'Quality scoring of gap research' },
-  { key: 'step8', label: 'Step 8 — FINAL REPORT',     parallelCount: 1, description: 'Merge R1 + gaps into final document' },
-  // Cleanup
-  { key: 'step9', label: 'Step 9 — CLOSE',            parallelCount: 1, description: 'Close the browser' },
+  // { key: 'step0', label: 'Step 0 — BOOT', parallelCount: 1, description: 'Open browser + 6 AI tabs' }, // BOOT — disabled
+  { key: 'step1', label: 'Step 1 — QUERY',          parallelCount: 1, description: 'Query all 6 tabs + fetch responses' },
+  // { key: 'step2', label: 'Step 2 — EVALUATE',    parallelCount: 1, description: 'Cross-review the 6 responses' }, // EVALUATE — disabled
+  { key: 'step3', label: 'Step 3 — VOTE',           parallelCount: 1, description: 'Quality scoring (8 criteria)' },
+  { key: 'step4', label: 'Step 4 — FINALIZE (R1)',  parallelCount: 1, description: 'Consolidate findings + gap list' },
+  { key: 'step5', label: 'Step 5 — GAP QUERY',      parallelCount: 1, description: 'Query gap topics in all 6 tabs' },
+  // { key: 'step6', label: 'Step 6 — EVALUATE (Gaps)', parallelCount: 1, description: 'Cross-review gap responses' }, // EVALUATE GAPS — disabled
+  { key: 'step7', label: 'Step 7 — VOTE (Gaps)',    parallelCount: 1, description: 'Quality scoring of gap research' },
+  { key: 'step8', label: 'Step 8 — FINAL REPORT',   parallelCount: 1, description: 'Merge R1 + gaps into final document' },
+  { key: 'step9', label: 'Step 9 — CLOSE',          parallelCount: 1, description: 'Close the browser' },
 ];
 
 export const STEP_PREREQUISITES: Record<string, string[]> = {
   // step0: [], // BOOT — disabled
   step1: [],           // No prereqs — workflow starts here
-  step2: ['step1'],
-  step3: ['step2'],
+  // step2: ['step1'], // EVALUATE — disabled
+  step3: ['step1'],    // VOTE gets Step 1 output directly
   step4: ['step3'],
   step5: ['step4'],
-  step6: ['step5'],
-  step7: ['step6'],
+  // step6: ['step5'], // EVALUATE GAPS — disabled
+  step7: ['step5'],    // VOTE GAPS gets Step 5 output directly
   step8: ['step7'],
   step9: ['step8'],
 };

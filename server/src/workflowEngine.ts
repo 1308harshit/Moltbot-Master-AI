@@ -8,16 +8,13 @@ import { config, promptPlaceholders } from './config';
 
 /**
  * Track active (running) workflows: gapId → sessionKey.
- * Used by stopWorkflow to mark them failed and by the engine to skip further steps.
  */
 const activeWorkflows: Map<string, string> = new Map();
 
-/** Simple delay helper */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Check if an error is transient and worth retrying */
 function isRetryableError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
   return (
@@ -29,7 +26,6 @@ function isRetryableError(error: unknown): boolean {
   );
 }
 
-/** Check if MoltBot's response indicates ANY failure that requires session reset + boot retry. */
 function isMoltBotFailureResponse(output: string): boolean {
   const lower = output.toLowerCase();
   return (
@@ -75,22 +71,22 @@ function emit(event: WorkflowEvent): void {
  */
 function buildPrompt(placeholderKey: string, contextBlock: string, snapshot?: Record<string, string> | Map<string, string>): string {
   const source = snapshot || promptPlaceholders;
-  
+
   let template = '';
   if (source instanceof Map) {
     template = source.get(placeholderKey) || `[Missing prompt for ${placeholderKey}]`;
   } else {
     template = (source as Record<string, string>)[placeholderKey] || `[Missing prompt for ${placeholderKey}]`;
   }
-  
+
   if (template.includes('{{CONTEXT_BLOCK}}')) {
     return template.replace('{{CONTEXT_BLOCK}}', contextBlock);
   }
-  
+
   if (contextBlock && placeholderKey !== 'default_prompt_boot') {
     return `${template}\n\n${contextBlock}`;
   }
-  
+
   return template;
 }
 
@@ -99,13 +95,12 @@ function buildPrompt(placeholderKey: string, contextBlock: string, snapshot?: Re
  */
 function validateMarker(output: string, step: string): boolean {
   const markers: Record<string, string> = {
-    step0: '=== END OF STEP 0 ===',  // BOOT — disabled, kept for future use
     step1: 'END OF RESPONSE A',
-    step2: '=== END OF STEP 2 ===',
+    // step2: '=== END OF STEP 2 ===', // EVALUATE — disabled
     step3: '=== END OF STEP 3 ===',
     step4: '=== END OF STEP 4 ===',
     step5: 'END OF RESPONSE B',
-    step6: '=== END OF STEP 6 ===',
+    // step6: '=== END OF STEP 6 ===', // EVALUATE GAPS — disabled
     step7: '=== END OF STEP 7 ===',
     step8: '=== END OF STEP 8 ===',
     step9: '=== END OF STEP 9 ===',
@@ -134,54 +129,18 @@ export function canRunStep(workflow: IWorkflow, step: string): { allowed: boolea
  */
 function getPromptKey(step: string): string {
   const map: Record<string, string> = {
-    // step0: 'default_prompt_boot',  // BOOT — disabled
     step1: 'default_prompt_step1',
-    step2: 'default_prompt_step2',
+    // step2: 'default_prompt_step2', // EVALUATE — disabled
     step3: 'default_prompt_step3',
     step4: 'default_prompt_step4',
     step5: 'default_prompt_step5',
-    step6: 'default_prompt_step6',
+    // step6: 'default_prompt_step6', // EVALUATE GAPS — disabled
     step7: 'default_prompt_step7',
     step8: 'default_prompt_step8',
     step9: 'default_prompt_step9',
   };
   return map[step] || `default_prompt_${step}`;
 }
-
-/**
- * Run the boot sequence: open browser + 6 AI tabs.
- * DISABLED — workflow starts directly at Step 1.
- * Kept for future use.
- */
-/*
-async function runBootSequence(
-  gapId: string,
-  sessionKey: string,
-  maxAttempts = 3
-): Promise<{ success: boolean; output: string }> {
-  let output = '';
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (attempt > 0) {
-      console.log(`⏳ [${gapId}] boot retry ${attempt}/${maxAttempts}: sending /new to reset session...`);
-      await wsClient.sendToSession(sessionKey, '/new');
-      await delay(3000);
-    }
-
-    console.log(`🔄 [${gapId}] boot — Open browser + 6 AI tabs${attempt > 0 ? ` [attempt ${attempt + 1}]` : ''}...`);
-    output = await wsClient.sendToSession(sessionKey, 'open browser');
-
-    if (isMoltBotFailureResponse(output)) {
-      console.log(`⚠️ [${gapId}] boot — Open browser failed: relay not connected`);
-      continue;
-    }
-
-    return { success: true, output };
-  }
-
-  return { success: false, output: 'Boot failed after all retries: OpenClaw Browser Relay not connected.' };
-}
-*/
 
 /**
  * Execute a single panel session.
@@ -194,7 +153,7 @@ async function executePanel(
   prompt: string,
   sessionKey: string
 ): Promise<{ success: boolean; output: string; error?: string }> {
-  const maxRetries = step === 'step0' ? 0 : config.panelRetryCount;
+  const maxRetries = config.panelRetryCount;
   const retryDelayMs = config.panelRetryDelayMs;
   const timeoutMs = config.browserStepTimeoutMs;
 
@@ -211,27 +170,16 @@ async function executePanel(
         return { success: false, output: '', error: 'Workflow was stopped' };
       }
 
-      let output = '';
+      let output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
 
-      // Step 0 boot logic — DISABLED (workflow starts at Step 1)
-      // if (step === 'step0') {
-      //   const boot = await runBootSequence(gapId, sessionKey);
-      //   output = boot.output;
-      //   if (boot.success) {
-      //     output += '\n=== END OF STEP 0 ===';
-      //   }
-      // } else {
+      if (isMoltBotFailureResponse(output)) {
+        console.log(`⚠️ [${gapId}] ${step} — MoltBot failure detected, retrying...`);
+        await delay(5000);
         output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
-
-        if (isMoltBotFailureResponse(output)) {
-          console.log(`⚠️ [${gapId}] ${step} — MoltBot failure detected, retrying...`);
-          await delay(5000);
-          output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
-        }
-      // }
+      }
 
       // Browser-interaction steps (step1, step5, step9) skip strict marker validation
-      const skipMarker = step === 'step1' || step === 'step5' || step === 'step9';
+      const skipMarker = ['step1', 'step5', 'step9'].includes(step);
       const passed = skipMarker ? true : validateMarker(output, step);
 
       await StepOutput.create({
@@ -353,33 +301,29 @@ export async function runStep(gapId: string, step: string): Promise<void> {
 
     const promptKey = getPromptKey(step);
     const snapshot = workflow.promptSnapshot as unknown as Record<string, string> | Map<string, string> | undefined;
-    const context = step === 'step0' ? '' : workflow.contextBlock;
+    const context = workflow.contextBlock;
     let prompt = buildPrompt(promptKey, context, snapshot);
 
     // ═══════════════════════════════════════════
     // Inject downstream outputs
+    // (Step 2 and Step 6 are disabled — step3 gets step1 output directly,
+    //  step7 gets step5 output directly)
     // ═══════════════════════════════════════════
-    if (step === 'step2') {
-      // Inject Step 1 output (raw 6-tab responses)
+
+    if (step === 'step3') {
+      // VOTE: Gets raw Step 1 output directly (step2 disabled)
       const step1Out = await StepOutput.findOne({ gapId, step: 'step1', validationPassed: true });
       prompt = prompt.replace('{{STEP1_OUTPUT}}', step1Out?.output || 'No Step 1 output found.');
-
-    } else if (step === 'step3') {
-      // VOTE: Inject cross-review from Step 2
-      const step2Out = await StepOutput.findOne({ gapId, step: 'step2', validationPassed: true });
-      prompt = prompt.replace('{{STEP2_OUTPUT}}', step2Out?.output || 'No Step 2 output found.');
 
     } else if (step === 'step4') {
-      // FINALIZE R1: Inject Step 1 + Step 2 + Step 3 (vote)
+      // FINALIZE R1: Gets Step 1 + Step 3 (no Step 2)
       const step1Out = await StepOutput.findOne({ gapId, step: 'step1', validationPassed: true });
-      const step2Out = await StepOutput.findOne({ gapId, step: 'step2', validationPassed: true });
       const step3Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
       prompt = prompt.replace('{{STEP1_OUTPUT}}', step1Out?.output || 'No Step 1 output found.');
-      prompt = prompt.replace('{{STEP2_OUTPUT}}', step2Out?.output || 'No Step 2 output found.');
       prompt = prompt.replace('{{STEP3_OUTPUT}}', step3Out?.output || 'No Step 3 output found.');
 
     } else if (step === 'step5') {
-      // GAP QUERY: Inject context from Step 1 + Gap List from Step 4
+      // GAP QUERY: Gets Step 1 context + Gap List from Step 4
       const step1Out = await StepOutput.findOne({ gapId, step: 'step1', validationPassed: true });
       const step4Out = await StepOutput.findOne({ gapId, step: 'step4', validationPassed: true });
       const step4Text = step4Out?.output || '';
@@ -388,25 +332,20 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       prompt = prompt.replace('{{STEP1_CONTEXT}}', step1Out?.output || 'No research context available.');
       prompt = prompt.replace('{{GAP_LIST}}', gapList);
 
-    } else if (step === 'step6') {
-      // EVALUATE GAPS: Inject Round 1 output (Step 4) + Step 5 gap responses
+    } else if (step === 'step7') {
+      // VOTE GAPS: Gets Round 1 (Step 4) + Step 5 output directly (step6 disabled)
       const round1Out = await StepOutput.findOne({ gapId, step: 'step4', validationPassed: true });
       const step5Out = await StepOutput.findOne({ gapId, step: 'step5', validationPassed: true });
       prompt = prompt.replace('{{ROUND1_OUTPUT}}', round1Out?.output || 'No Round 1 output found.');
       prompt = prompt.replace('{{STEP5_OUTPUT}}', step5Out?.output || 'No Step 5 output found.');
 
-    } else if (step === 'step7') {
-      // VOTE GAPS: Inject gap analysis from Step 6
-      const step6Out = await StepOutput.findOne({ gapId, step: 'step6', validationPassed: true });
-      prompt = prompt.replace('{{STEP6_OUTPUT}}', step6Out?.output || 'No Step 6 output found.');
-
     } else if (step === 'step8') {
-      // FINAL REPORT: Inject Round 1 (Step 4) + Gap Analysis (Step 6) + Gap Quality (Step 7)
+      // FINAL REPORT: Gets Round 1 (Step 4) + Step 5 raw gap output + Step 7 quality
       const round1Out = await StepOutput.findOne({ gapId, step: 'step4', validationPassed: true });
-      const gapAnalysis = await StepOutput.findOne({ gapId, step: 'step6', validationPassed: true });
+      const step5Out = await StepOutput.findOne({ gapId, step: 'step5', validationPassed: true });
       const gapQuality = await StepOutput.findOne({ gapId, step: 'step7', validationPassed: true });
       prompt = prompt.replace('{{ROUND1_OUTPUT}}', round1Out?.output || 'No Round 1 output found.');
-      prompt = prompt.replace('{{GAP_ANALYSIS}}', gapAnalysis?.output || 'No gap analysis found.');
+      prompt = prompt.replace('{{GAP_ANALYSIS}}', step5Out?.output || 'No gap analysis found.');
       prompt = prompt.replace('{{GAP_QUALITY}}', gapQuality?.output || 'No gap quality evaluation found.');
     }
 
@@ -462,19 +401,16 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       });
 
       // ═══════════════════════════════════════════
-      // Auto-chain: step0→1→2→3→4→5→6→7→8→9→done
+      // Auto-chain (step2 and step6 are skipped)
       // ═══════════════════════════════════════════
       const nextStepMap: Record<string, string | null> = {
-        // step0: null,     // BOOT — disabled
-        step1: 'step2',
-        step2: 'step3',
+        step1: 'step3',   // skip step2 (EVALUATE)
         step3: 'step4',
         step4: 'step5',
-        step5: 'step6',
-        step6: 'step7',
+        step5: 'step7',   // skip step6 (EVALUATE GAPS)
         step7: 'step8',
         step8: 'step9',
-        step9: null,     // workflow complete
+        step9: null,       // workflow complete
       };
 
       const nextStep = nextStepMap[step];
@@ -538,18 +474,13 @@ export async function rerunFailedSessions(gapId: string, step: string): Promise<
     let prompt = buildPrompt(promptKey, workflow.contextBlock, snapshot);
 
     // Inject downstream outputs (same logic as runStep)
-    if (step === 'step2') {
+    if (step === 'step3') {
       const step1Out = await StepOutput.findOne({ gapId, step: 'step1', validationPassed: true });
       prompt = prompt.replace('{{STEP1_OUTPUT}}', step1Out?.output || 'No Step 1 output found.');
-    } else if (step === 'step3') {
-      const step2Out = await StepOutput.findOne({ gapId, step: 'step2', validationPassed: true });
-      prompt = prompt.replace('{{STEP2_OUTPUT}}', step2Out?.output || 'No Step 2 output found.');
     } else if (step === 'step4') {
       const step1Out = await StepOutput.findOne({ gapId, step: 'step1', validationPassed: true });
-      const step2Out = await StepOutput.findOne({ gapId, step: 'step2', validationPassed: true });
       const step3Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
       prompt = prompt.replace('{{STEP1_OUTPUT}}', step1Out?.output || 'No Step 1 output found.');
-      prompt = prompt.replace('{{STEP2_OUTPUT}}', step2Out?.output || 'No Step 2 output found.');
       prompt = prompt.replace('{{STEP3_OUTPUT}}', step3Out?.output || 'No Step 3 output found.');
     } else if (step === 'step5') {
       const step1Out = await StepOutput.findOne({ gapId, step: 'step1', validationPassed: true });
@@ -559,20 +490,17 @@ export async function rerunFailedSessions(gapId: string, step: string): Promise<
       const gapList = gapMatch ? gapMatch[1].trim() : step4Text;
       prompt = prompt.replace('{{STEP1_CONTEXT}}', step1Out?.output || 'No research context available.');
       prompt = prompt.replace('{{GAP_LIST}}', gapList);
-    } else if (step === 'step6') {
+    } else if (step === 'step7') {
       const round1Out = await StepOutput.findOne({ gapId, step: 'step4', validationPassed: true });
       const step5Out = await StepOutput.findOne({ gapId, step: 'step5', validationPassed: true });
       prompt = prompt.replace('{{ROUND1_OUTPUT}}', round1Out?.output || 'No Round 1 output found.');
       prompt = prompt.replace('{{STEP5_OUTPUT}}', step5Out?.output || 'No Step 5 output found.');
-    } else if (step === 'step7') {
-      const step6Out = await StepOutput.findOne({ gapId, step: 'step6', validationPassed: true });
-      prompt = prompt.replace('{{STEP6_OUTPUT}}', step6Out?.output || 'No Step 6 output found.');
     } else if (step === 'step8') {
       const round1Out = await StepOutput.findOne({ gapId, step: 'step4', validationPassed: true });
-      const gapAnalysis = await StepOutput.findOne({ gapId, step: 'step6', validationPassed: true });
+      const step5Out = await StepOutput.findOne({ gapId, step: 'step5', validationPassed: true });
       const gapQuality = await StepOutput.findOne({ gapId, step: 'step7', validationPassed: true });
       prompt = prompt.replace('{{ROUND1_OUTPUT}}', round1Out?.output || 'No Round 1 output found.');
-      prompt = prompt.replace('{{GAP_ANALYSIS}}', gapAnalysis?.output || 'No gap analysis found.');
+      prompt = prompt.replace('{{GAP_ANALYSIS}}', step5Out?.output || 'No gap analysis found.');
       prompt = prompt.replace('{{GAP_QUALITY}}', gapQuality?.output || 'No gap quality evaluation found.');
     }
 
@@ -641,7 +569,7 @@ export async function rerunFailedSessions(gapId: string, step: string): Promise<
 }
 
 /**
- * Start a full workflow (Step 0 init → auto-chain through all steps).
+ * Start a full workflow (directly at Step 1).
  */
 export async function startWorkflow(contextBlock: string): Promise<IWorkflow> {
   const gapId = uuidv4();
@@ -652,7 +580,7 @@ export async function startWorkflow(contextBlock: string): Promise<IWorkflow> {
     gapId,
     sessionKey,
     status: 'running',
-    currentStep: 'step1',  // Skip step0, start at step1
+    currentStep: 'step1',
     contextBlock,
     promptSnapshot: snapshot,
   });
@@ -666,7 +594,7 @@ export async function startWorkflow(contextBlock: string): Promise<IWorkflow> {
     data: { status: 'running', currentStep: 'step1' },
   });
 
-  // Workflow starts directly at Step 1 (no boot step)
+  // Workflow starts directly at Step 1
   setImmediate(() => {
     runStep(gapId, 'step1')
       .catch((err) => {

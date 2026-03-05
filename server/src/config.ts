@@ -95,34 +95,36 @@ Tab6 - Qwen:
 
 and append the text "END OF RESPONSE A" at the last.`,
 
-  // ─── Step 2: EVALUATE — Cross-review the 6 responses ───
-  default_prompt_step2: `Based on the 6 AI responses below, perform a thorough cross-review.
+  // ─── Step 2: EVALUATE — DISABLED (skipping cross-review to save time) ───
+  // Kept for future use:
+  // default_prompt_step2: `Based on the 6 AI responses below, perform a thorough cross-review.
+  //
+  // INPUT (Raw Responses from 6 AI Tabs):
+  // {{STEP1_OUTPUT}}
+  //
+  // You must:
+  // 1. Compare all 6 responses side by side
+  // 2. Identify common themes across responses
+  // 3. Identify major differences and contradictions
+  // 4. Assess strengths and weaknesses of each response
+  // 5. Identify missing areas or gaps in coverage
+  //
+  // OUTPUT:
+  // 1. Common Themes
+  // 2. Major Differences
+  // 3. Strengths and Weaknesses (per tab)
+  // 4. Missing Areas
+  // 5. Preliminary Conclusion
+  //
+  // End your response with:
+  // === END OF STEP 2 ===`,
+  default_prompt_step2: '', // placeholder — step2 is skipped
+
+  // ─── Step 3: VOTE — Quality scoring on 8 criteria ───
+  default_prompt_step3: `Based on the 6 AI responses below, perform a quality evaluation and vote on the quality of the research.
 
 INPUT (Raw Responses from 6 AI Tabs):
 {{STEP1_OUTPUT}}
-
-You must:
-1. Compare all 6 responses side by side
-2. Identify common themes across responses
-3. Identify major differences and contradictions
-4. Assess strengths and weaknesses of each response
-5. Identify missing areas or gaps in coverage
-
-OUTPUT:
-1. Common Themes
-2. Major Differences
-3. Strengths and Weaknesses (per tab)
-4. Missing Areas
-5. Preliminary Conclusion
-
-End your response with:
-=== END OF STEP 2 ===`,
-
-  // ─── Step 3: VOTE — Quality scoring on 8 criteria ───
-  default_prompt_step3: `Based on the cross-review analysis below, perform a final quality evaluation and vote on the quality of the research.
-
-INPUT:
-{{STEP2_OUTPUT}}
 
 Score the analysis on 8 criteria (1-5 each) to ensure it meets high research standards:
 1. Comprehensiveness — Does it cover the topic fully?
@@ -148,9 +150,6 @@ End your response with:
 
 Raw AI Responses:
 {{STEP1_OUTPUT}}
-
-Cross-Review:
-{{STEP2_OUTPUT}}
 
 Quality Evaluation:
 {{STEP3_OUTPUT}}
@@ -204,34 +203,39 @@ Tab6 - Qwen:
 
 and append the text "END OF RESPONSE B" at the last.`,
 
-  // ─── Step 6: EVALUATE GAPS — Cross-review gap responses ───
-  default_prompt_step6: `Based on the gap research responses below, perform a cross-review, merging with the original Round 1 findings.
+  // ─── Step 6: EVALUATE GAPS — DISABLED (skipping cross-review to save time) ───
+  // Kept for future use:
+  // default_prompt_step6: `Based on the gap research responses below, perform a cross-review, merging with the original Round 1 findings.
+  //
+  // Original Research (Round 1):
+  // {{ROUND1_OUTPUT}}
+  //
+  // New Gap Research (Raw Responses from 6 AI Tabs):
+  // {{STEP5_OUTPUT}}
+  //
+  // You must:
+  // 1. Compare the new gap findings with the original research
+  // 2. Resolve contradictions between original and new findings
+  // 3. Fill in the gaps that were identified
+  // 4. Produce a refined synthesis that strengthens the original research
+  //
+  // OUTPUT:
+  // 1. Comparative Summary
+  // 2. Resolved Gaps
+  // 3. Final Consolidated Gap Analysis
+  //
+  // End your response with:
+  // === END OF STEP 6 ===`,
+  default_prompt_step6: '', // placeholder — step6 is skipped
+
+  // ─── Step 7: VOTE GAPS — Quality scoring of gap research ───
+  default_prompt_step7: `Based on the gap research responses below, perform a quality evaluation and vote on the quality of the gap research.
 
 Original Research (Round 1):
 {{ROUND1_OUTPUT}}
 
 New Gap Research (Raw Responses from 6 AI Tabs):
 {{STEP5_OUTPUT}}
-
-You must:
-1. Compare the new gap findings with the original research
-2. Resolve contradictions between original and new findings
-3. Fill in the gaps that were identified
-4. Produce a refined synthesis that strengthens the original research
-
-OUTPUT:
-1. Comparative Summary
-2. Resolved Gaps
-3. Final Consolidated Gap Analysis
-
-End your response with:
-=== END OF STEP 6 ===`,
-
-  // ─── Step 7: VOTE GAPS — Quality scoring of gap research ───
-  default_prompt_step7: `Based on the consolidated gap analysis below, perform a final quality evaluation and vote on the quality of the gap research.
-
-INPUT:
-{{STEP6_OUTPUT}}
 
 Score the analysis on 8 criteria (1-5 each) to ensure it meets high research standards:
 1. Comprehensiveness — Does it fill the identified gaps?
