@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import os from 'os';
 
 // Load .env from project root
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -36,6 +37,15 @@ export const config = {
   panelRetryCount: parseInt(process.env.PANEL_RETRY_COUNT || '2', 10),                      // max retries on transient failure
   panelRetryDelayMs: parseInt(process.env.PANEL_RETRY_DELAY_MS || '10000', 10),             // delay between retries
   browserStepTimeoutMs: parseInt(process.env.BROWSER_STEP_TIMEOUT_MS || '600000', 10),      // timeout for browser-dependent steps (default 10 minutes)
+
+  // OS-level Browser Control
+  // Use OpenClaw's dedicated Chrome user-data-dir so we skip the profile picker
+  // and launch directly into the profile that has the relay extension installed.
+  chromeExePath: process.env.CHROME_EXE_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  openclawUserDataDir: process.env.OPENCLAW_CHROME_USER_DATA_DIR || path.join(os.homedir(), '.openclaw', 'browser', 'openclaw', 'user-data'),
+  browserOpenCmd: process.env.BROWSER_OPEN_CMD || 'cmd /c start "" "{{CHROME_EXE}}" --remote-debugging-port=18800 --user-data-dir="{{USER_DATA_DIR}}" "chrome-extension://{{EXTENSION_ID}}/chatHub.html"',
+  browserCloseCmd: process.env.BROWSER_CLOSE_CMD || 'powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name=\'chrome.exe\'\\" | Where-Object { $_.CommandLine -like \'*openclaw*\' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"',
+  extensionId: process.env.SIMPLE_CHAT_HUB_EXT_ID || 'your-extension-id-here',
 } as const;
 
 // Prompt placeholders — opinionated defaults, editable from frontend

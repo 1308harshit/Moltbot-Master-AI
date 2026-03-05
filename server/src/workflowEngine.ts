@@ -1,10 +1,15 @@
 import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import WebSocket from 'ws';
 import { Workflow, IWorkflow, STEP_PREREQUISITES, IStepStatus } from './models/Workflow';
 import { StepOutput } from './models/StepOutput';
 import { wsClient } from './wsClient';
 import { pushToCoda } from './coda';
 import { config, promptPlaceholders } from './config';
+
+const execAsync = promisify(exec);
 
 /**
  * Track active (running) workflows: gapId → sessionKey.
@@ -166,44 +171,191 @@ function getPromptKey(step: string): string {
 }
 
 /**
- * Run the boot sequence: /new (if retry) → open browser → open simple chathub extension ui.
+ * Execute the OS command to close the browser.
+ */
+async function closeBrowser(gapId: string): Promise<void> {
+  if (!config.browserCloseCmd) return;
+  console.log(`🧹 [${gapId}] Executing browser close command...`);
+  try {
+    await execAsync(config.browserCloseCmd);
+    console.log(`✅ [${gapId}] Browser close command executed successfully.`);
+  } catch (err: any) {
+    console.error(`⚠️ [${gapId}] Failed to execute browser close command:`, err.message);
+  }
+}
+
+/**
+ * Use Chrome DevTools Protocol (CDP) to type a query into the Simple Chat Hub
+ * search bar and press Enter. Connects to Chrome via the debugging port.
+ */
+async function typeQueryViaCDP(
+  gapId: string,
+  query: string,
+  cdpPort = 18800,
+  maxRetries = 5
+): Promise<{ success: boolean; error?: string }> {
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      console.log(`⏳ [${gapId}] CDP retry ${attempt}/${maxRetries}...`);
+      await delay(3000);
+    }
+
+    try {
+      // ── Find the chatHub tab ──
+      console.log(`🔍 [${gapId}] CDP — Fetching tab list from http://127.0.0.1:${cdpPort}/json ...`);
+      const response = await fetch(`http://127.0.0.1:${cdpPort}/json`);
+      const tabs = (await response.json()) as Array<{ id: string; url: string; webSocketDebuggerUrl?: string; title?: string }>;
+
+      const chatHubTab = tabs.find(t => t.url.includes('chatHub') || t.url.includes('simple-chat-hub') || t.url.includes(config.extensionId));
+      if (!chatHubTab || !chatHubTab.webSocketDebuggerUrl) {
+        console.log(`⚠️ [${gapId}] CDP — chatHub tab not found. Tabs: ${tabs.map(t => t.url).join(', ')}`);
+        continue;
+      }
+
+      console.log(`✅ [${gapId}] CDP — Found chatHub tab: ${chatHubTab.url}`);
+
+      // ── Connect to the tab via WebSocket ──
+      const ws = new WebSocket(chatHubTab.webSocketDebuggerUrl);
+      let msgId = 1;
+
+      const cdpSend = (method: string, params: Record<string, unknown> = {}): Promise<any> => {
+        return new Promise((resolve, reject) => {
+          const id = msgId++;
+          const timeout = setTimeout(() => reject(new Error(`CDP timeout: ${method}`)), 10000);
+
+          const handler = (data: any) => {
+            const msg = JSON.parse(data.toString());
+            if (msg.id === id) {
+              clearTimeout(timeout);
+              ws.off('message', handler);
+              if (msg.error) reject(new Error(msg.error.message));
+              else resolve(msg.result);
+            }
+          };
+
+          ws.on('message', handler);
+          ws.send(JSON.stringify({ id, method, params }));
+        });
+      };
+
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+        setTimeout(() => reject(new Error('CDP WebSocket connect timeout')), 5000);
+      });
+
+      console.log(`🔌 [${gapId}] CDP — Connected to chatHub tab WebSocket`);
+
+      // ── Focus the textarea ──
+      console.log(`🔍 [${gapId}] CDP — Focusing textarea...`);
+      const focusResult = await cdpSend('Runtime.evaluate', {
+        expression: `(function(){
+          var ta = document.querySelector('textarea.ant-input');
+          if (!ta) return 'NO_TEXTAREA';
+          ta.focus();
+          ta.click();
+          return 'FOCUSED';
+        })()`,
+        returnByValue: true,
+      });
+      console.log(`✅ [${gapId}] CDP — Focus result:`, focusResult?.result?.value);
+
+      if (focusResult?.result?.value === 'NO_TEXTAREA') {
+        console.log(`⚠️ [${gapId}] CDP — Textarea not found on page. Retrying...`);
+        ws.close();
+        continue;
+      }
+
+      await delay(300);
+
+      // ── Type the query using native CDP Input.insertText ──
+      console.log(`📝 [${gapId}] CDP — Typing query via Input.insertText: "${query.substring(0, 60)}..."`);
+      await cdpSend('Input.insertText', { text: query });
+      console.log(`✅ [${gapId}] CDP — Text inserted!`);
+
+      await delay(500);
+
+      // ── Verify the value was set ──
+      const verifyResult = await cdpSend('Runtime.evaluate', {
+        expression: `(function(){
+          var ta = document.querySelector('textarea.ant-input');
+          return ta ? 'VALUE:' + ta.value.substring(0, 50) : 'NO_TEXTAREA';
+        })()`,
+        returnByValue: true,
+      });
+      console.log(`📋 [${gapId}] CDP — Verify:`, verifyResult?.result?.value);
+
+      await delay(500);
+
+      // ── Press Enter using native CDP Input.dispatchKeyEvent ──
+      console.log(`🚀 [${gapId}] CDP — Pressing Enter via Input.dispatchKeyEvent...`);
+      await cdpSend('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        nativeVirtualKeyCode: 13,
+      });
+      await cdpSend('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        nativeVirtualKeyCode: 13,
+      });
+      console.log(`✅ [${gapId}] CDP — Enter pressed! Query submitted.`);
+
+      ws.close();
+      return { success: true };
+
+    } catch (err: any) {
+      console.error(`⚠️ [${gapId}] CDP attempt ${attempt + 1} failed:`, err.message);
+    }
+  }
+
+  return { success: false, error: 'CDP failed after all retries' };
+}
+
+/**
+ * Run the boot sequence:
+ *  1. Execute the OS command to open Chrome directly to the Simple Chat Hub extension page.
+ *  2. Use CDP to type the context block into the search bar and press Enter.
  * Returns { success, output } indicating whether the boot succeeded.
  */
 async function runBootSequence(
   gapId: string,
   sessionKey: string,
-  maxAttempts = 3
+  maxAttempts = 3,
+  contextBlock?: string
 ): Promise<{ success: boolean; output: string }> {
-  let output = '';
+  // ── Step A: Open Chrome natively via OS command ──
+  const cmd = config.browserOpenCmd
+    .replace('{{CHROME_EXE}}', config.chromeExePath)
+    .replace('{{EXTENSION_ID}}', config.extensionId)
+    .replace('{{USER_DATA_DIR}}', config.openclawUserDataDir);
+  console.log(`🚀 [${gapId}] boot — Running OS command: ${cmd}`);
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (attempt > 0) {
-      console.log(`⏳ [${gapId}] boot retry ${attempt}/${maxAttempts}: sending /new to reset session...`);
-      await wsClient.sendToSession(sessionKey, '/new');
-      await delay(3000);
-    }
-
-    console.log(`🔄 [${gapId}] boot — Open browser${attempt > 0 ? ` [attempt ${attempt + 1}]` : ''}...`);
-    const browserOutput = await wsClient.sendToSession(sessionKey, 'open browser');
-
-    if (isMoltBotFailureResponse(browserOutput)) {
-      console.log(`⚠️ [${gapId}] boot — Open browser failed: relay not connected`);
-      continue;
-    }
-
-    console.log(`🔄 [${gapId}] boot — Open Simple Chat Hub extension${attempt > 0 ? ` [attempt ${attempt + 1}]` : ''}...`);
-    output = await wsClient.sendToSession(sessionKey, 'open the extension called "Simple Chat Hub" - it is a chrome extension that has 6 AI chat panels. Open its main UI page.');
-
-    if (isMoltBotFailureResponse(output)) {
-      console.log(`⚠️ [${gapId}] boot — Open extension failed: relay not connected`);
-      continue;
-    }
-
-    // Both commands succeeded
-    return { success: true, output };
+  try {
+    await execAsync(cmd);
+    console.log(`✅ [${gapId}] boot — OS command executed successfully. Waiting for browser to load...`);
+    await delay(7000); // Give Chrome time to fully open and render the extension page
+  } catch (err: any) {
+    console.error(`❌ [${gapId}] boot — Failed to execute OS command:`, err.message);
+    return { success: false, output: `Boot failed: could not open browser natively. Error: ${err.message}` };
   }
 
-  return { success: false, output: 'Boot failed after all retries: OpenClaw Browser Relay not connected.' };
+  // ── Step B: Type the context block into the search bar via CDP ──
+  if (contextBlock) {
+    console.log(`📝 [${gapId}] boot — Typing query via CDP: "${contextBlock.substring(0, 80)}..."`);
+    const cdpResult = await typeQueryViaCDP(gapId, contextBlock);
+    if (!cdpResult.success) {
+      return { success: false, output: `Boot failed: CDP could not type query. Error: ${cdpResult.error}` };
+    }
+    console.log(`✅ [${gapId}] boot — Query submitted via CDP. Panels are now generating responses.`);
+  }
+
+  return { success: true, output: 'Boot + query submission completed via CDP.\n=== END OF STEP 0 ===' };
 }
 
 /**
@@ -215,7 +367,8 @@ async function executePanel(
   session: number,
   panelId: number,
   prompt: string,
-  sessionKey: string
+  sessionKey: string,
+  contextBlock?: string
 ): Promise<{ success: boolean; output: string; error?: string }> {
   const maxRetries = step === 'step0' ? 0 : config.panelRetryCount;
   const retryDelayMs = config.panelRetryDelayMs;
@@ -239,26 +392,13 @@ async function executePanel(
 
       if (step === 'step0') {
         // Step 0: run the full boot sequence
-        const boot = await runBootSequence(gapId, sessionKey);
+        const boot = await runBootSequence(gapId, sessionKey, 3, contextBlock);
         output = boot.output;
         if (boot.success) {
           output += '\n=== END OF STEP 0 ===';
         }
       } else {
         output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
-
-        // If MoltBot says "no tab connected", run the full boot sequence first, then retry the step
-        if (isMoltBotFailureResponse(output)) {
-          console.log(`⚠️ [${gapId}] ${step} — no tab connected, running full boot sequence before retrying...`);
-          const boot = await runBootSequence(gapId, sessionKey);
-          if (boot.success) {
-            await delay(2000);
-            console.log(`🔄 [${gapId}] ${step} — boot recovered, retrying step prompt...`);
-            output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
-          } else {
-            output = boot.output;
-          }
-        }
       }
 
       // For some steps (like step4 and step5a), we deliberately skip
@@ -453,7 +593,7 @@ export async function runStep(gapId: string, step: string): Promise<void> {
     // Launch sessions in parallel
     const results = await Promise.all(
       Array.from({ length: totalSessions }, (_, i) => i + 1).map(
-        (sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt, sessionKey)
+        (sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt, sessionKey, workflow.contextBlock)
       )
     );
 
@@ -555,6 +695,8 @@ export async function runStep(gapId: string, step: string): Promise<void> {
         } else if (step === 'step6') {
            // Entire workflow (both rounds) is finished
            await Workflow.updateOne({ gapId }, { status: 'completed', currentStep: 'done' });
+           await closeBrowser(gapId);
+           
            emit({
              type: 'workflow_completed',
              gapId,
@@ -567,6 +709,7 @@ export async function runStep(gapId: string, step: string): Promise<void> {
     const errMsg = error instanceof Error ? error.message : String(error);
     await updateStepStatus(gapId, step, { status: 'failed', failureReason: errMsg });
     await Workflow.updateOne({ gapId }, { status: 'failed', failureReason: errMsg });
+    await closeBrowser(gapId);
 
     emit({
       type: 'workflow_failed',
@@ -785,6 +928,7 @@ export async function stopWorkflow(gapId: string): Promise<void> {
     { gapId },
     { status: 'failed', failureReason: 'Stopped by user' }
   );
+  await closeBrowser(gapId);
 
   emit({
     type: 'workflow_failed',
