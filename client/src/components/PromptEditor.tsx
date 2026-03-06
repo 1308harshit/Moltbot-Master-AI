@@ -4,15 +4,17 @@ import { API_BASE } from '../types';
 
 const PROMPT_KEYS = [
   { key: 'default_prompt_boot', label: 'Boot Prompt' },
-  { key: 'default_prompt_step1', label: 'Step 1 — Search' },
+  { key: 'default_prompt_step1a', label: 'Step 1a — Search' },
+  { key: 'default_prompt_step1b', label: 'Step 1b — Clean' },
   { key: 'default_prompt_step2a', label: 'Step 2a — Analyze' },
   { key: 'default_prompt_step2b', label: 'Step 2b — Cross-Review' },
   { key: 'default_prompt_step2c', label: 'Step 2c — Evaluate' },
   { key: 'default_prompt_step3', label: 'Step 3 — Finalize (Round 1)' },
-  { key: 'default_prompt_step4', label: 'Step 4 — Search (Gaps)' },
-  { key: 'default_prompt_step5a', label: 'Step 5a — Analyze (Gaps)' },
-  { key: 'default_prompt_step5b', label: 'Step 5b — Cross-Review (Gaps)' },
-  { key: 'default_prompt_step5c', label: 'Step 5c — Evaluate (Gaps)' },
+  { key: 'default_prompt_step4a', label: 'Step 4a — Search' },
+  { key: 'default_prompt_step4b', label: 'Step 4b — Clean' },
+  { key: 'default_prompt_step5a', label: 'Step 5a — Analyze' },
+  { key: 'default_prompt_step5b', label: 'Step 5b — Cross-Review' },
+  { key: 'default_prompt_step5c', label: 'Step 5c — Evaluate' },
   { key: 'default_prompt_step6', label: 'Step 6 — Finalize (Final)' },
 ];
 

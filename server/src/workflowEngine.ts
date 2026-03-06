@@ -119,17 +119,17 @@ function buildPrompt(placeholderKey: string, contextBlock: string, snapshot?: Re
  */
 function validateMarker(output: string, step: string): boolean {
   const markers: Record<string, string> = {
-    step0: '=== END OF STEP 0 ===',
-    step1: '=== END OF STEP 1 ===',
+    step0:  '=== END OF STEP 0 ===',
+    step1b: '=== END OF STEP 1B ===',
     step2a: '=== END OF STEP 2A ===',
     step2b: '=== END OF STEP 2B ===',
     step2c: '=== END OF STEP 2C ===',
-    step3: '=== END OF STEP 3 ===',
-    step4: '=== END OF STEP 4 ===',
+    step3:  '=== END OF STEP 3 ===',
+    step4b: '=== END OF STEP 4B ===',
     step5a: '=== END OF STEP 5A ===',
     step5b: '=== END OF STEP 5B ===',
     step5c: '=== END OF STEP 5C ===',
-    step6: '=== END OF STEP 6 ===',
+    step6:  '=== END OF STEP 6 ===',
   };
   const marker = markers[step] || `=== END OF ${step.toUpperCase()} ===`;
   return output.includes(marker);
@@ -155,17 +155,19 @@ export function canRunStep(workflow: IWorkflow, step: string): { allowed: boolea
  */
 function getPromptKey(step: string): string {
   const map: Record<string, string> = {
-    step0: 'default_prompt_boot',
-    step1: 'default_prompt_step1',
+    step0:  'default_prompt_boot',
+    step1a: 'default_prompt_step1a',
+    step1b: 'default_prompt_step1b',
     step2a: 'default_prompt_step2a',
     step2b: 'default_prompt_step2b',
     step2c: 'default_prompt_step2c',
-    step3: 'default_prompt_step3',
-    step4: 'default_prompt_step4',
+    step3:  'default_prompt_step3',
+    step4a: 'default_prompt_step4a',
+    step4b: 'default_prompt_step4b',
     step5a: 'default_prompt_step5a',
     step5b: 'default_prompt_step5b',
     step5c: 'default_prompt_step5c',
-    step6: 'default_prompt_step6',
+    step6:  'default_prompt_step6',
   };
   return map[step] || `default_prompt_${step}`;
 }
@@ -510,50 +512,50 @@ async function executePanel(
         if (boot.success) {
           output += '\n=== END OF STEP 0 ===';
         }
-      } else if (step === 'step1') {
+      } else if (step === 'step1a') {
         // Step 1: Wait for panels to generate, then read responses via CDP
-        console.log(`⏳ [${gapId}] step1 — Waiting ${config.panelWaitTimeMs / 1000}s for panels to generate...`);
-        await delay(config.panelWaitTimeMs);
+        console.log(`⏳ [${gapId}] step1a — Waiting ${(config.panelWaitTimeMs + 3000) / 1000}s for panels to generate...`);
+        await delay(config.panelWaitTimeMs + 5000);
 
-        console.log(`📖 [${gapId}] step1 — Reading panel responses via CDP...`);
+        console.log(`📖 [${gapId}] step1a — Reading panel responses via CDP...`);
         const panelResult = await readPanelResponsesViaCDP(gapId);
         if (panelResult.success) {
-          output = panelResult.formatted + '\n\n=== END OF STEP 1 ===';
+          output = panelResult.formatted + '\n\n=== END OF STEP 1A ===';
         } else {
           output = 'Failed to read panel responses via CDP.';
         }
-      } else if (step === 'step4') {
+      } else if (step === 'step4a') {
         // Step 4: Type gap research query via CDP, wait, then read responses
         // The gap query is built from step2a context + step3 gap list
         // contextBlock here contains the gap research query built in runStep
         if (contextBlock) {
-          console.log(`📝 [${gapId}] step4 — Typing gap research query via CDP...`);
+          console.log(`📝 [${gapId}] step4a — Typing gap research query via CDP...`);
           const cdpResult = await typeQueryViaCDP(gapId, contextBlock);
           if (!cdpResult.success) {
             output = `Failed to type gap query via CDP: ${cdpResult.error}`;
           } else {
-            console.log(`⏳ [${gapId}] step4 — Waiting ${config.panelWaitTimeMs / 1000}s for panels to generate...`);
-            await delay(config.panelWaitTimeMs);
+            console.log(`⏳ [${gapId}] step4a — Waiting ${(config.panelWaitTimeMs + 3000) / 1000}s for panels to generate...`);
+            await delay(config.panelWaitTimeMs + 5000);
 
-            console.log(`📖 [${gapId}] step4 — Reading panel responses via CDP...`);
+            console.log(`📖 [${gapId}] step4a — Reading panel responses via CDP...`);
             const panelResult = await readPanelResponsesViaCDP(gapId);
             if (panelResult.success) {
-              output = panelResult.formatted + '\n\n=== END OF STEP 4 ===';
+              output = panelResult.formatted + '\n\n=== END OF STEP 4A ===';
             } else {
               output = 'Failed to read panel responses via CDP.';
             }
           }
         } else {
-          output = 'No gap research query provided for step4.';
+          output = 'No gap research query provided for step4a.';
         }
       } else {
         // All other steps: send prompt to MoltBot via WebSocket
         output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
       }
 
-      // For CDP-handled steps (step1, step4) and some analysis steps (step5a),
+      // For CDP-handled steps (step1a, step4a) and some analysis steps (step5a),
       // skip strict marker validation.
-      const cdpHandledSteps = ['step1', 'step4'];
+      const cdpHandledSteps = ['step1a', 'step4a'];
       const skipMarkerSteps = ['step5a', ...cdpHandledSteps];
       const requiresMarker = !skipMarkerSteps.includes(step);
       const passed = requiresMarker ? validateMarker(output, step) : true;
@@ -694,11 +696,15 @@ export async function runStep(gapId: string, step: string): Promise<void> {
     let prompt = buildPrompt(promptKey, context, snapshot);
 
     // Inject downstream outputs
-    // Step 1 and 4 are CDP-handled (no MoltBot prompt needed, but we still build context)
-    if (step === 'step2a') {
-      // Inject panel responses from Step 1 into the {{PANEL_RESPONSES}} placeholder
-      const step1Out = await StepOutput.findOne({ gapId, step: 'step1', validationPassed: true });
-      prompt = prompt.replace('{{PANEL_RESPONSES}}', step1Out?.output || 'No panel responses available.');
+    // Step 1a and 4a are CDP-handled (no MoltBot prompt needed, but we still build context)
+    if (step === 'step1b') {
+      // CLEAN raw panel DOM from Step 1a
+      const step1aOut = await StepOutput.findOne({ gapId, step: 'step1a', validationPassed: true });
+      prompt = prompt.replace('{{RAW_PANEL_RESPONSES}}', step1aOut?.output || 'No raw panel responses available.');
+    } else if (step === 'step2a') {
+      // ANALYZE cleaned responses from Step 1b
+      const step1bOut = await StepOutput.findOne({ gapId, step: 'step1b', validationPassed: true });
+      prompt = prompt.replace('{{PANEL_RESPONSES}}', step1bOut?.output || 'No cleaned panel responses available.');
     } else if (step === 'step2b') {
       const step2aOuts = await StepOutput.find({ gapId, step: 'step2a', validationPassed: true }).sort({ session: 1 });
       const combined = step2aOuts.map(o => `--- Analysis ${o.session} ---\n${o.output}`).join('\n\n');
@@ -713,7 +719,7 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       const qualityEval = step2cOuts.map(o => o.output).join('\n\n');
       prompt = prompt.replace('{{ANALYSIS_INPUT}}', analysisOutput?.output || 'No analysis found.');
       prompt = prompt.replace('{{QUALITY_EVALUATION}}', qualityEval);
-    } else if (step === 'step4') {
+    } else if (step === 'step4a') {
       // Build the gap research query that CDP will type into Simple Chat Hub
       const step2aOut = await StepOutput.findOne({ gapId, step: 'step2a', validationPassed: true });
       const step3Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
@@ -725,10 +731,14 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       // Store the gap query as the contextBlock so executePanel can use it for CDP typing
       // We override workflow.contextBlock temporarily for this step
       (workflow as any)._step4GapQuery = gapQuery;
+    } else if (step === 'step4b') {
+      // CLEAN raw gap panel DOM from Step 4a
+      const step4aOut = await StepOutput.findOne({ gapId, step: 'step4a', validationPassed: true });
+      prompt = prompt.replace('{{RAW_GAP_PANEL_RESPONSES}}', step4aOut?.output || 'No raw gap panel responses available.');
     } else if (step === 'step5a') {
-      // Inject panel responses from Step 4 into the {{PANEL_RESPONSES}} placeholder
-      const step4Out = await StepOutput.findOne({ gapId, step: 'step4', validationPassed: true });
-      prompt = prompt.replace('{{PANEL_RESPONSES}}', step4Out?.output || 'No panel responses available.');
+      // ANALYZE cleaned gap responses from Step 4b
+      const step4bOut = await StepOutput.findOne({ gapId, step: 'step4b', validationPassed: true });
+      prompt = prompt.replace('{{PANEL_RESPONSES}}', step4bOut?.output || 'No cleaned gap panel responses available.');
     } else if (step === 'step5b') {
       // Inject Step 5a outputs + Round 1 output for context
       const step5aOuts = await StepOutput.find({ gapId, step: 'step5a', validationPassed: true }).sort({ session: 1 });
@@ -750,8 +760,8 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       prompt = prompt.replace('{{GAP_QUALITY_EVALUATION}}', gapQualityEval);
     }
 
-    // For step4, pass the gap query as the contextBlock for CDP typing
-    const contextBlockForStep = step === 'step4' 
+    // For step4a, pass the gap query as the contextBlock for CDP typing
+    const contextBlockForStep = step === 'step4a' 
       ? (workflow as any)._step4GapQuery || workflow.contextBlock 
       : workflow.contextBlock;
 
@@ -819,7 +829,11 @@ export async function runStep(gapId: string, step: string): Promise<void> {
         // Auto-chain next steps sequentially
         if (step === 'step0') {
           // Already handled in startWorkflow
-        } else if (step === 'step1') {
+        } else if (step === 'step1a') {
+          setImmediate(() => {
+            runStep(gapId, 'step1b').catch(e => console.error(`Auto-chain 1b failed:`, e.message));
+          });
+        } else if (step === 'step1b') {
           setImmediate(() => {
             runStep(gapId, 'step2a').catch(e => console.error(`Auto-chain 2a failed:`, e.message));
           });
@@ -839,9 +853,13 @@ export async function runStep(gapId: string, step: string): Promise<void> {
           // Round 1 done — continue to Round 2 (Gap Research)
           console.log(`🔄 [${gapId}] Round 1 complete. Starting Round 2 (Gap Research)...`);
           setImmediate(() => {
-            runStep(gapId, 'step4').catch(e => console.error(`Auto-chain 4 failed:`, e.message));
+            runStep(gapId, 'step4a').catch(e => console.error(`Auto-chain 4a failed:`, e.message));
           });
-        } else if (step === 'step4') {
+        } else if (step === 'step4a') {
+          setImmediate(() => {
+            runStep(gapId, 'step4b').catch(e => console.error(`Auto-chain 4b failed:`, e.message));
+          });
+        } else if (step === 'step4b') {
           setImmediate(() => {
             runStep(gapId, 'step5a').catch(e => console.error(`Auto-chain 5a failed:`, e.message));
           });
@@ -1056,14 +1074,14 @@ export async function startWorkflow(contextBlock: string): Promise<IWorkflow> {
     data: { status: 'running', currentStep: 'step0' },
   });
 
-  // Run Step 0 (boot) in background, then Step 1
+  // Run Step 0 (boot) in background, then Step 1a
   setImmediate(() => {
     runStep(gapId, 'step0')
       .then(() => {
         console.log(`⏳ [${gapId}] Waiting ${config.stepTransitionDelayMs / 1000}s for browser control service to stabilize...`);
         return delay(config.stepTransitionDelayMs);
       })
-      .then(() => runStep(gapId, 'step1'))
+      .then(() => runStep(gapId, 'step1a'))
       .catch((err) => {
         console.error(`❌ [${gapId}] Boot/Step error:`, err.message);
       });
