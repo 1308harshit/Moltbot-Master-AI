@@ -318,6 +318,113 @@ async function typeQueryViaCDP(
 }
 
 /**
+ * Panel domain → display name mapping for identifying AI service tabs in CDP.
+ */
+const PANEL_DOMAINS = [
+  { domain: 'chatgpt.com', name: 'ChatGPT' },
+  { domain: 'gemini.google.com', name: 'Gemini' },
+  { domain: 'grok.com', name: 'Grok' },
+  { domain: 'claude.ai', name: 'Claude' },
+  { domain: 'perplexity.ai', name: 'Perplexity' },
+  { domain: 'chat.qwen.ai', name: 'Qwen' },
+];
+
+/**
+ * Use CDP to read the response text from each of the 6 AI panel tabs.
+ * Each panel in Simple Chat Hub shows up as a separate tab in CDP's /json list.
+ * We connect to each tab's WebSocket and run document.body.innerText.
+ */
+async function readPanelResponsesViaCDP(
+  gapId: string,
+  cdpPort = config.cdpPort,
+  maxRetries = 3
+): Promise<{ success: boolean; responses: Record<string, string>; formatted: string }> {
+  const responses: Record<string, string> = {};
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      console.log(`⏳ [${gapId}] CDP read retry ${attempt}/${maxRetries}...`);
+      await delay(3000);
+    }
+
+    try {
+      console.log(`🔍 [${gapId}] CDP — Fetching tab list for panel reading...`);
+      const response = await fetch(`http://127.0.0.1:${cdpPort}/json`);
+      const tabs = (await response.json()) as Array<{ url: string; webSocketDebuggerUrl?: string; title?: string }>;
+
+      let foundCount = 0;
+
+      for (const panel of PANEL_DOMAINS) {
+        const matchingTab = tabs.find(t => t.url.includes(panel.domain) && t.webSocketDebuggerUrl);
+        if (!matchingTab) {
+          console.log(`⚠️ [${gapId}] CDP — No tab found for ${panel.name}`);
+          responses[panel.name] = 'No visible response.';
+          continue;
+        }
+
+        try {
+          const ws = new WebSocket(matchingTab.webSocketDebuggerUrl!);
+          let msgId = 1;
+
+          const cdpSend = (method: string, params: Record<string, unknown> = {}): Promise<any> => {
+            return new Promise((resolve, reject) => {
+              const id = msgId++;
+              const timeout = setTimeout(() => reject(new Error(`CDP timeout: ${method}`)), 10000);
+              const handler = (data: any) => {
+                const msg = JSON.parse(data.toString());
+                if (msg.id === id) {
+                  clearTimeout(timeout);
+                  ws.off('message', handler);
+                  if (msg.error) reject(new Error(msg.error.message));
+                  else resolve(msg.result);
+                }
+              };
+              ws.on('message', handler);
+              ws.send(JSON.stringify({ id, method, params }));
+            });
+          };
+
+          await new Promise<void>((resolve, reject) => {
+            ws.on('open', resolve);
+            ws.on('error', reject);
+            setTimeout(() => reject(new Error('CDP WebSocket connect timeout')), 5000);
+          });
+
+          const result = await cdpSend('Runtime.evaluate', {
+            expression: 'document.body ? document.body.innerText : ""',
+            returnByValue: true,
+          });
+
+          const text = result?.result?.value || '';
+          responses[panel.name] = text.trim() || 'No visible response.';
+          foundCount++;
+
+          console.log(`✅ [${gapId}] CDP — ${panel.name}: ${text.length} chars`);
+          ws.close();
+        } catch (err: any) {
+          console.error(`⚠️ [${gapId}] CDP — Error reading ${panel.name}:`, err.message);
+          responses[panel.name] = 'No visible response.';
+        }
+      }
+
+      console.log(`📊 [${gapId}] CDP — Read ${foundCount}/${PANEL_DOMAINS.length} panels`);
+
+      // Format the responses for downstream prompts
+      const formatted = PANEL_DOMAINS.map(p => {
+        return `${p.name} Full Response:\n${responses[p.name]}`;
+      }).join('\n\n');
+
+      return { success: true, responses, formatted };
+
+    } catch (err: any) {
+      console.error(`⚠️ [${gapId}] CDP read attempt ${attempt + 1} failed:`, err.message);
+    }
+  }
+
+  return { success: false, responses, formatted: '' };
+}
+
+/**
  * Run the boot sequence:
  *  1. Execute the OS command to open Chrome directly to the Simple Chat Hub extension page.
  *  2. Use CDP to type the context block into the search bar and press Enter.
@@ -329,20 +436,26 @@ async function runBootSequence(
   maxAttempts = 3,
   contextBlock?: string
 ): Promise<{ success: boolean; output: string }> {
-  // ── Step A: Open Chrome natively via OS command ──
-  const cmd = config.browserOpenCmd
-    .replace('{{CHROME_EXE}}', config.chromeExePath)
-    .replace('{{EXTENSION_ID}}', config.extensionId)
-    .replace('{{USER_DATA_DIR}}', config.openclawUserDataDir);
-  console.log(`🚀 [${gapId}] boot — Running OS command: ${cmd}`);
+  // ── Step A: Open Chrome natively via spawn (fire-and-forget) ──
+  const chromeArgs = [
+    `--remote-debugging-port=${config.cdpPort}`,
+    `--user-data-dir=${config.openclawUserDataDir}`,
+    `chrome-extension://${config.extensionId}/chatHub.html`,
+  ];
+  console.log(`🚀 [${gapId}] boot — Spawning Chrome: ${config.chromeExePath} ${chromeArgs.join(' ')}`);
 
   try {
-    await execAsync(cmd);
-    console.log(`✅ [${gapId}] boot — OS command executed successfully. Waiting for browser to load...`);
+    const { spawn } = await import('child_process');
+    const chromeProcess = spawn(config.chromeExePath, chromeArgs, {
+      detached: true,
+      stdio: 'ignore',
+    });
+    chromeProcess.unref();
+    console.log(`✅ [${gapId}] boot — Chrome spawned (pid: ${chromeProcess.pid}). Waiting for browser to load...`);
     await delay(7000); // Give Chrome time to fully open and render the extension page
   } catch (err: any) {
-    console.error(`❌ [${gapId}] boot — Failed to execute OS command:`, err.message);
-    return { success: false, output: `Boot failed: could not open browser natively. Error: ${err.message}` };
+    console.error(`❌ [${gapId}] boot — Failed to spawn Chrome:`, err.message);
+    return { success: false, output: `Boot failed: could not spawn Chrome. Error: ${err.message}` };
   }
 
   // ── Step B: Type the context block into the search bar via CDP ──
@@ -391,21 +504,58 @@ async function executePanel(
       let output = '';
 
       if (step === 'step0') {
-        // Step 0: run the full boot sequence
+        // Step 0: run the full boot sequence (open Chrome + type query via CDP)
         const boot = await runBootSequence(gapId, sessionKey, 3, contextBlock);
         output = boot.output;
         if (boot.success) {
           output += '\n=== END OF STEP 0 ===';
         }
+      } else if (step === 'step1') {
+        // Step 1: Wait for panels to generate, then read responses via CDP
+        console.log(`⏳ [${gapId}] step1 — Waiting ${config.panelWaitTimeMs / 1000}s for panels to generate...`);
+        await delay(config.panelWaitTimeMs);
+
+        console.log(`📖 [${gapId}] step1 — Reading panel responses via CDP...`);
+        const panelResult = await readPanelResponsesViaCDP(gapId);
+        if (panelResult.success) {
+          output = panelResult.formatted + '\n\n=== END OF STEP 1 ===';
+        } else {
+          output = 'Failed to read panel responses via CDP.';
+        }
+      } else if (step === 'step4') {
+        // Step 4: Type gap research query via CDP, wait, then read responses
+        // The gap query is built from step2a context + step3 gap list
+        // contextBlock here contains the gap research query built in runStep
+        if (contextBlock) {
+          console.log(`📝 [${gapId}] step4 — Typing gap research query via CDP...`);
+          const cdpResult = await typeQueryViaCDP(gapId, contextBlock);
+          if (!cdpResult.success) {
+            output = `Failed to type gap query via CDP: ${cdpResult.error}`;
+          } else {
+            console.log(`⏳ [${gapId}] step4 — Waiting ${config.panelWaitTimeMs / 1000}s for panels to generate...`);
+            await delay(config.panelWaitTimeMs);
+
+            console.log(`📖 [${gapId}] step4 — Reading panel responses via CDP...`);
+            const panelResult = await readPanelResponsesViaCDP(gapId);
+            if (panelResult.success) {
+              output = panelResult.formatted + '\n\n=== END OF STEP 4 ===';
+            } else {
+              output = 'Failed to read panel responses via CDP.';
+            }
+          }
+        } else {
+          output = 'No gap research query provided for step4.';
+        }
       } else {
+        // All other steps: send prompt to MoltBot via WebSocket
         output = await wsClient.sendToSession(sessionKey, prompt, timeoutMs);
       }
 
-      // For some steps (like step4 and step5a), we deliberately skip
-      // strict marker validation: whatever MoltBot returns within the
-      // timeout window is accepted so the workflow does not fail just
-      // because the marker is missing or panels were slow.
-      const requiresMarker = step !== 'step4' && step !== 'step5a';
+      // For CDP-handled steps (step1, step4) and some analysis steps (step5a),
+      // skip strict marker validation.
+      const cdpHandledSteps = ['step1', 'step4'];
+      const skipMarkerSteps = ['step5a', ...cdpHandledSteps];
+      const requiresMarker = !skipMarkerSteps.includes(step);
       const passed = requiresMarker ? validateMarker(output, step) : true;
 
       // Store in MongoDB
@@ -543,9 +693,13 @@ export async function runStep(gapId: string, step: string): Promise<void> {
     const context = step === 'step0' ? '' : workflow.contextBlock;
     let prompt = buildPrompt(promptKey, context, snapshot);
 
-    // Inject downstream outputs for Step 2b, 2c, 3, 4, 5b, 5c, 6
-    // Note: Step 2a and 5a read panel outputs directly via MoltBot browser interaction
-    if (step === 'step2b') {
+    // Inject downstream outputs
+    // Step 1 and 4 are CDP-handled (no MoltBot prompt needed, but we still build context)
+    if (step === 'step2a') {
+      // Inject panel responses from Step 1 into the {{PANEL_RESPONSES}} placeholder
+      const step1Out = await StepOutput.findOne({ gapId, step: 'step1', validationPassed: true });
+      prompt = prompt.replace('{{PANEL_RESPONSES}}', step1Out?.output || 'No panel responses available.');
+    } else if (step === 'step2b') {
       const step2aOuts = await StepOutput.find({ gapId, step: 'step2a', validationPassed: true }).sort({ session: 1 });
       const combined = step2aOuts.map(o => `--- Analysis ${o.session} ---\n${o.output}`).join('\n\n');
       prompt = prompt.replace('{{STEP2A_OUTPUTS}}', combined);
@@ -560,15 +714,21 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       prompt = prompt.replace('{{ANALYSIS_INPUT}}', analysisOutput?.output || 'No analysis found.');
       prompt = prompt.replace('{{QUALITY_EVALUATION}}', qualityEval);
     } else if (step === 'step4') {
-      // Inject Step 2a output (analysis context) + Gap List from Step 3
+      // Build the gap research query that CDP will type into Simple Chat Hub
       const step2aOut = await StepOutput.findOne({ gapId, step: 'step2a', validationPassed: true });
       const step3Out = await StepOutput.findOne({ gapId, step: 'step3', validationPassed: true });
       const step3Text = step3Out?.output || '';
-      // Extract gap list section from step3 output
       const gapMatch = step3Text.match(/(?:Gap List|gap list|Gaps?|Remaining).*?\n([\s\S]*?)(?:===|$)/i);
       const gapList = gapMatch ? gapMatch[1].trim() : step3Text;
-      prompt = prompt.replace('{{STEP2A_CONTEXT}}', step2aOut?.output || 'No analysis context available.');
-      prompt = prompt.replace('{{GAP_LIST}}', gapList);
+      // Build a query string that will be typed into Simple Chat Hub search bar
+      const gapQuery = `Based on this research context:\n${(step2aOut?.output || 'No analysis context').substring(0, 2000)}\n\nPlease investigate and fill these identified gaps:\n${gapList}`;
+      // Store the gap query as the contextBlock so executePanel can use it for CDP typing
+      // We override workflow.contextBlock temporarily for this step
+      (workflow as any)._step4GapQuery = gapQuery;
+    } else if (step === 'step5a') {
+      // Inject panel responses from Step 4 into the {{PANEL_RESPONSES}} placeholder
+      const step4Out = await StepOutput.findOne({ gapId, step: 'step4', validationPassed: true });
+      prompt = prompt.replace('{{PANEL_RESPONSES}}', step4Out?.output || 'No panel responses available.');
     } else if (step === 'step5b') {
       // Inject Step 5a outputs + Round 1 output for context
       const step5aOuts = await StepOutput.find({ gapId, step: 'step5a', validationPassed: true }).sort({ session: 1 });
@@ -590,10 +750,15 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       prompt = prompt.replace('{{GAP_QUALITY_EVALUATION}}', gapQualityEval);
     }
 
+    // For step4, pass the gap query as the contextBlock for CDP typing
+    const contextBlockForStep = step === 'step4' 
+      ? (workflow as any)._step4GapQuery || workflow.contextBlock 
+      : workflow.contextBlock;
+
     // Launch sessions in parallel
     const results = await Promise.all(
       Array.from({ length: totalSessions }, (_, i) => i + 1).map(
-        (sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt, sessionKey, workflow.contextBlock)
+        (sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt, sessionKey, contextBlockForStep)
       )
     );
 
