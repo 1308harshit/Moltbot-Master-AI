@@ -454,7 +454,7 @@ async function runBootSequence(
     });
     chromeProcess.unref();
     console.log(`✅ [${gapId}] boot — Chrome spawned (pid: ${chromeProcess.pid}). Waiting for browser to load...`);
-    await delay(7000); // Give Chrome time to fully open and render the extension page
+    await delay(12000); // Give Chrome extra time to fully open and render the extension page
   } catch (err: any) {
     console.error(`❌ [${gapId}] boot — Failed to spawn Chrome:`, err.message);
     return { success: false, output: `Boot failed: could not spawn Chrome. Error: ${err.message}` };
@@ -529,6 +529,8 @@ async function executePanel(
         // The gap query is built from step2a context + step3 gap list
         // contextBlock here contains the gap research query built in runStep
         if (contextBlock) {
+          console.log(`📝 [${gapId}] step4a — Preparing to type gap research query via CDP (extra delay)...`);
+          await delay(3000); // Extra settling time before typing into Simple Chat Hub
           console.log(`📝 [${gapId}] step4a — Typing gap research query via CDP...`);
           const cdpResult = await typeQueryViaCDP(gapId, contextBlock);
           if (!cdpResult.success) {
