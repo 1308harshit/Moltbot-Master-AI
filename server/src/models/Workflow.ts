@@ -50,6 +50,7 @@ const DEFAULT_STEP_STATUSES: Record<string, IStepStatus> = {
   step5b: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
   step5c: { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
   step6:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
+  step7:  { status: 'idle', completedSessions: 0, failedSessions: [], totalSessions: 1 },
 };
 
 const WorkflowSchema = new Schema<IWorkflow>(
@@ -99,6 +100,7 @@ export const STEP_DEFINITIONS = [
   { key: 'step5b', label: 'Step 5b — CROSS-REVIEW (Gaps)',parallelCount: 1, description: 'Cross-review gap findings with Round 1' },
   { key: 'step5c', label: 'Step 5c — EVALUATE (Gaps)',    parallelCount: 1, description: 'Quality evaluation of gap research' },
   { key: 'step6',  label: 'Step 6 — FINALIZE (Final)',   parallelCount: 1, description: 'Final complete research document' },
+  { key: 'step7',  label: 'Step 7 — CURSOR CHAT',        parallelCount: 1, description: 'Automated Cursor UI Chat Integration' },
 ];
 
 // Step dependency chain: a step requires all its prerequisites to be 'completed'
@@ -116,4 +118,5 @@ export const STEP_PREREQUISITES: Record<string, string[]> = {
   step5b: ['step5a'],
   step5c: ['step5b'],
   step6:  ['step5c'],
+  step7:  ['step6'],
 };

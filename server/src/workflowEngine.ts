@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
 import WebSocket from 'ws';
 import { Workflow, IWorkflow, STEP_PREREQUISITES, IStepStatus } from './models/Workflow';
 import { StepOutput } from './models/StepOutput';
@@ -767,12 +769,18 @@ export async function runStep(gapId: string, step: string): Promise<void> {
       ? (workflow as any)._step4GapQuery || workflow.contextBlock 
       : workflow.contextBlock;
 
-    // Launch sessions in parallel
-    const results = await Promise.all(
-      Array.from({ length: totalSessions }, (_, i) => i + 1).map(
-        (sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt, sessionKey, contextBlockForStep)
-      )
-    );
+    let results = [];
+    if (step === 'step7') {
+      // Step 7 doesn't execute a panel, it runs the cursor script natively
+      results = [{ success: true, output: 'Exported to Cursor', error: '' }];
+    } else {
+      // Launch standard sessions in parallel
+      results = await Promise.all(
+        Array.from({ length: totalSessions }, (_, i) => i + 1).map(
+          (sessionId) => executePanel(gapId, step, sessionId, sessionId, prompt, sessionKey, contextBlockForStep)
+        )
+      );
+    }
 
     // Tally results
     let completedCount = 0;
@@ -878,8 +886,45 @@ export async function runStep(gapId: string, step: string): Promise<void> {
             runStep(gapId, 'step6').catch(e => console.error(`Auto-chain 6 failed:`, e.message));
           });
         } else if (step === 'step6') {
+          setImmediate(() => {
+            runStep(gapId, 'step7').catch(e => console.error(`Auto-chain 7 failed:`, e.message));
+          });
+        } else if (step === 'step7') {
            // Entire workflow (both rounds) is finished
            await Workflow.updateOne({ gapId }, { status: 'completed', currentStep: 'done' });
+           
+           // EXPORT TO DETERMINISTIC FILE STRUCTURE FOR CURSOR (Hybrid Step 7)
+           try {
+             // 1. Get the final output for Step 6
+             const finalOut = await StepOutput.findOne({ gapId, step: 'step6', validationPassed: true }).sort({ session: 1 });
+             if (finalOut) {
+               // 2. Ensure directory exists
+               const projectRoot = path.resolve(__dirname, '../../');
+               const exportDir = path.join(projectRoot, 'Cursor_Research_work', gapId);
+               fs.mkdirSync(exportDir, { recursive: true });
+               
+               // 3. Write file with appended prompt (buffer for clipboard)
+               const exportPath = path.join(exportDir, 'output_of_step_6.txt');
+               const finalContent = `${finalOut.output}\n\nTHE ABOVE IS MY RESEARCH SHARE YOUR VIEW ON THIS`;
+               fs.writeFileSync(exportPath, finalContent, 'utf8');
+               console.log(`✅ [${gapId}] Saved Step 6 buffer for clipboard injection to ${exportPath}`);
+
+               // 4. Trigger Hybrid Cursor UI Automation (Clipboard Paste)
+               const scriptPath = path.join(projectRoot, 'scripts', 'cursor-deterministic.ps1');
+               const command = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -TargetFile "${exportPath}" -GapId "${gapId}"`;
+               console.log(`🚀 [${gapId}] Launching Hybrid Cursor Automation (Clipboard Mode): ${command}`);
+               exec(command, (error, stdout, stderr) => {
+                 if (error) {
+                   console.error(`⚠️ [${gapId}] Hybrid Cursor Automation failed:`, error.message);
+                 } else {
+                   console.log(`✅ [${gapId}] Hybrid Cursor Automation completed successfully.`);
+                 }
+               });
+             }
+           } catch (exportErr: any) {
+             console.error(`⚠️ [${gapId}] Failed to export Step 6 for Cursor:`, exportErr.message);
+           }
+           
            await closeBrowser(gapId);
            
            emit({
