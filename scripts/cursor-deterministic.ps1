@@ -6,7 +6,7 @@ param(
 # CONFIG
 # ==============================
 
-$CursorExe = "D:\Program File\cursor\_\Cursor.exe"
+$CursorExe = "D:\Program File\cursor\Cursor.exe"
 $DownloadsPath = "$env:USERPROFILE\Downloads"
 $TimeoutSeconds = 180
 
@@ -114,27 +114,30 @@ Start-Sleep -Seconds 20
 # ==============================
 
 # 3 dots are near top-right of chat panel
-$xThreeDots = $rect.Right - 10
-$yThreeDots = $rect.Top + 35
+# Move in from the edge (Right-10 was too close)
+$xThreeDots = $rect.Right - 12
+$yThreeDots = $rect.Top + 25
 
+Log "Clicking three dots at ($xThreeDots, $yThreeDots)..."
 [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($xThreeDots, $yThreeDots)
-Start-Sleep -Milliseconds 300
+Start-Sleep -Milliseconds 500
 [Win32]::mouse_event(0x02,0,0,0,[UIntPtr]::Zero)
 [Win32]::mouse_event(0x04,0,0,0,[UIntPtr]::Zero)
 
 Log "Clicked three dots."
-Start-Sleep -Milliseconds 800
+Start-Sleep -Milliseconds 1200
 
 # ==============================
 # CLICK EXPORT TRANSCRIPT
 # ==============================
 
 # Export option is below menu
-$xExport = $rect.Right - 100
-$yExport = $rect.Top + 210
+$xExport = $rect.Right - 105
+$yExport = $rect.Top + 185
 
+Log "Clicking Export Transcript at ($xExport, $yExport)..."
 [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($xExport, $yExport)
-Start-Sleep -Milliseconds 300
+Start-Sleep -Milliseconds 500
 [Win32]::mouse_event(0x02,0,0,0,[UIntPtr]::Zero)
 [Win32]::mouse_event(0x04,0,0,0,[UIntPtr]::Zero)
 
