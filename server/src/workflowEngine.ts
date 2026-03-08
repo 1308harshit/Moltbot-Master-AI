@@ -5,8 +5,12 @@ import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 import WebSocket from 'ws';
-import { Workflow, IWorkflow, STEP_PREREQUISITES, IStepStatus } from './models/Workflow';
+import { Workflow, IWorkflow, STEP_DEFINITIONS, STEP_PREREQUISITES, IStepStatus } from './models/Workflow';
 import { StepOutput } from './models/StepOutput';
+
+// Global mutex to ensure Cursor UI Automation runs sequentially across all workflows
+let cursorUiMutex: Promise<void> = Promise.resolve();
+
 import { wsClient } from './wsClient';
 import { pushToCoda } from './coda';
 import { config, promptPlaceholders } from './config';
@@ -174,17 +178,24 @@ function getPromptKey(step: string): string {
   return map[step] || `default_prompt_${step}`;
 }
 
-/**
- * Execute the OS command to close the browser.
- */
 async function closeBrowser(gapId: string): Promise<void> {
-  if (!config.browserCloseCmd) return;
-  console.log(`🧹 [${gapId}] Executing browser close command...`);
+  console.log(`🧹 [${gapId}] Closing specific workflow tab gracefully...`);
   try {
-    await execAsync(config.browserCloseCmd);
-    console.log(`✅ [${gapId}] Browser close command executed successfully.`);
+    const cdpPort = config.cdpPort;
+    const response = await fetch(`http://127.0.0.1:${cdpPort}/json`);
+    const tabs = (await response.json()) as Array<{ id: string; url: string }>;
+
+    // Find the specific chatHub tab belonging to this gapId
+    const chatHubTab = tabs.find(t => t.url.includes('chatHub') && t.url.includes(gapId));
+    
+    if (chatHubTab && chatHubTab.id) {
+      await fetch(`http://127.0.0.1:${cdpPort}/json/close/${chatHubTab.id}`);
+      console.log(`✅ [${gapId}] Closed workflow tab ${chatHubTab.id} successfully.`);
+    } else {
+      console.log(`⚠️ [${gapId}] Could not find an active tab for this workflow to close.`);
+    }
   } catch (err: any) {
-    console.error(`⚠️ [${gapId}] Failed to execute browser close command:`, err.message);
+    console.error(`⚠️ [${gapId}] Failed to execute graceful tab close:`, err.message);
   }
 }
 
@@ -206,12 +217,13 @@ async function typeQueryViaCDP(
     }
 
     try {
-      // ── Find the chatHub tab ──
+      // ── Find the chatHub tab (Most Recent) ──
       console.log(`🔍 [${gapId}] CDP — Fetching tab list from http://127.0.0.1:${cdpPort}/json ...`);
       const response = await fetch(`http://127.0.0.1:${cdpPort}/json`);
       const tabs = (await response.json()) as Array<{ id: string; url: string; webSocketDebuggerUrl?: string; title?: string }>;
 
-      const chatHubTab = tabs.find(t => t.url.includes('chatHub') || t.url.includes('simple-chat-hub') || t.url.includes(config.extensionId));
+      // Find the specific chatHub tab belonging to this gapId
+      const chatHubTab = tabs.find(t => t.url.includes('chatHub') && t.url.includes(gapId));
       if (!chatHubTab || !chatHubTab.webSocketDebuggerUrl) {
         console.log(`⚠️ [${gapId}] CDP — chatHub tab not found. Tabs: ${tabs.map(t => t.url).join(', ')}`);
         continue;
@@ -344,6 +356,9 @@ async function readPanelResponsesViaCDP(
   maxRetries = 3
 ): Promise<{ success: boolean; responses: Record<string, string>; formatted: string }> {
   const responses: Record<string, string> = {};
+  for (const panel of PANEL_DOMAINS) {
+    responses[panel.name] = 'No visible response.';
+  }
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (attempt > 0) {
@@ -352,68 +367,104 @@ async function readPanelResponsesViaCDP(
     }
 
     try {
-      console.log(`🔍 [${gapId}] CDP — Fetching tab list for panel reading...`);
+      console.log(`🔍 [${gapId}] CDP — Fetching tab list to attach to parent tab...`);
       const response = await fetch(`http://127.0.0.1:${cdpPort}/json`);
-      const tabs = (await response.json()) as Array<{ url: string; webSocketDebuggerUrl?: string; title?: string }>;
+      const tabs = (await response.json()) as Array<{ id: string; url: string; webSocketDebuggerUrl?: string }>;
+
+      // Find the specific chatHub tab belonging to this gapId
+      const chatHubTab = tabs.find(t => t.url.includes('chatHub') && t.url.includes(gapId));
+      if (!chatHubTab || !chatHubTab.webSocketDebuggerUrl) {
+        console.log(`⚠️ [${gapId}] CDP — No exact chatHub tab found for reading. Tabs: ${tabs.map(t => t.url).join(', ')}`);
+        continue;
+      }
+
+      console.log(`✅ [${gapId}] CDP — Connected to parent tab for reading: ${chatHubTab.url}`);
+      
+      const ws = new WebSocket(chatHubTab.webSocketDebuggerUrl);
+      let msgId = 1;
+      const childTargets: Array<{ targetInfo: any; sessionId: string }> = [];
+
+      const cdpSend = (method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<any> => {
+        return new Promise((resolve, reject) => {
+          const id = msgId++;
+          const timeout = setTimeout(() => reject(new Error(`CDP timeout: ${method}`)), 10000);
+          const handler = (data: any) => {
+            const msg = JSON.parse(data.toString());
+            if (msg.id === id) {
+              clearTimeout(timeout);
+              ws.off('message', handler);
+              if (msg.error) reject(new Error(msg.error.message));
+              else resolve(msg.result);
+            }
+          };
+          ws.on('message', handler);
+          
+          const payload: any = { id, method, params };
+          if (sessionId) payload.sessionId = sessionId;
+          ws.send(JSON.stringify(payload));
+        });
+      };
+
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+        setTimeout(() => reject(new Error('CDP WebSocket connect timeout')), 5000);
+      });
+
+      // Listen for attached child targets
+      ws.on('message', (data: any) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.method === 'Target.attachedToTarget') {
+          const targetInfo = msg.params.targetInfo;
+          const sessionId = msg.params.sessionId;
+          childTargets.push({ targetInfo, sessionId });
+        }
+      });
+
+      // Tell Chrome to automatically attach to all child iframes belonging to this specific tab
+      await cdpSend('Target.setAutoAttach', {
+        autoAttach: true,
+        waitForDebuggerOnStart: false,
+        flatten: true
+      });
+
+      console.log(`⏳ [${gapId}] CDP — Waiting for child iframes to attach...`);
+      await delay(2000); // Give it a moment to discover iframes
 
       let foundCount = 0;
 
       for (const panel of PANEL_DOMAINS) {
-        const matchingTab = tabs.find(t => t.url.includes(panel.domain) && t.webSocketDebuggerUrl);
-        if (!matchingTab) {
-          console.log(`⚠️ [${gapId}] CDP — No tab found for ${panel.name}`);
-          responses[panel.name] = 'No visible response.';
+        // Find the iframe belonging to this specific AI panel
+        const child = [...childTargets].reverse().find(c => c.targetInfo.url.includes(panel.domain));
+        if (!child) {
+          console.log(`⚠️ [${gapId}] CDP — No child iframe attached for ${panel.name}`);
           continue;
         }
 
         try {
-          const ws = new WebSocket(matchingTab.webSocketDebuggerUrl!);
-          let msgId = 1;
-
-          const cdpSend = (method: string, params: Record<string, unknown> = {}): Promise<any> => {
-            return new Promise((resolve, reject) => {
-              const id = msgId++;
-              const timeout = setTimeout(() => reject(new Error(`CDP timeout: ${method}`)), 10000);
-              const handler = (data: any) => {
-                const msg = JSON.parse(data.toString());
-                if (msg.id === id) {
-                  clearTimeout(timeout);
-                  ws.off('message', handler);
-                  if (msg.error) reject(new Error(msg.error.message));
-                  else resolve(msg.result);
-                }
-              };
-              ws.on('message', handler);
-              ws.send(JSON.stringify({ id, method, params }));
-            });
-          };
-
-          await new Promise<void>((resolve, reject) => {
-            ws.on('open', resolve);
-            ws.on('error', reject);
-            setTimeout(() => reject(new Error('CDP WebSocket connect timeout')), 5000);
-          });
-
-          const result = await cdpSend('Runtime.evaluate', {
+          // Evaluate directly inside the child iframe's flattened session
+          const evalResult = await cdpSend('Runtime.evaluate', {
             expression: 'document.body ? document.body.innerText : ""',
-            returnByValue: true,
-          });
+            returnByValue: true
+          }, child.sessionId);
 
-          const text = result?.result?.value || '';
-          responses[panel.name] = text.trim() || 'No visible response.';
-          foundCount++;
-
-          console.log(`✅ [${gapId}] CDP — ${panel.name}: ${text.length} chars`);
-          ws.close();
+          const text = evalResult?.result?.value || '';
+          if (text.trim()) {
+            responses[panel.name] = text.trim();
+            foundCount++;
+            console.log(`✅ [${gapId}] CDP — ${panel.name}: ${text.length} chars (Isolated)`);
+          } else {
+            console.log(`⚠️ [${gapId}] CDP — Empty response read for ${panel.name}`);
+          }
         } catch (err: any) {
           console.error(`⚠️ [${gapId}] CDP — Error reading ${panel.name}:`, err.message);
-          responses[panel.name] = 'No visible response.';
         }
       }
 
-      console.log(`📊 [${gapId}] CDP — Read ${foundCount}/${PANEL_DOMAINS.length} panels`);
+      ws.close();
 
-      // Format the responses for downstream prompts
+      console.log(`📊 [${gapId}] CDP — Read ${foundCount}/${PANEL_DOMAINS.length} panels (Isolated)`);
+
       const formatted = PANEL_DOMAINS.map(p => {
         return `${p.name} Full Response:\n${responses[p.name]}`;
       }).join('\n\n');
@@ -425,7 +476,10 @@ async function readPanelResponsesViaCDP(
     }
   }
 
-  return { success: false, responses, formatted: '' };
+  const formatted = PANEL_DOMAINS.map(p => {
+    return `${p.name} Full Response:\n${responses[p.name]}`;
+  }).join('\n\n');
+  return { success: false, responses, formatted };
 }
 
 /**
@@ -444,7 +498,7 @@ async function runBootSequence(
   const chromeArgs = [
     `--remote-debugging-port=${config.cdpPort}`,
     `--user-data-dir=${config.openclawUserDataDir}`,
-    `chrome-extension://${config.extensionId}/chatHub.html`,
+    `chrome-extension://${config.extensionId}/chatHub.html?gapId=${gapId}`,
   ];
   console.log(`🚀 [${gapId}] boot — Spawning Chrome: ${config.chromeExePath} ${chromeArgs.join(' ')}`);
 
@@ -462,14 +516,27 @@ async function runBootSequence(
     return { success: false, output: `Boot failed: could not spawn Chrome. Error: ${err.message}` };
   }
 
-  // ── Step B: Type the context block into the search bar via CDP ──
+  // ── Step B: Send the initial wake-up query and then the main query ──
   if (contextBlock) {
-    console.log(`📝 [${gapId}] boot — Typing query via CDP: "${contextBlock.substring(0, 80)}..."`);
+    // 1. Send wake-up query
+    const WAKE_WORD = "Hi";
+    console.log(`📝 [${gapId}] boot — Sending wake-up query: "${WAKE_WORD}"...`);
+    const wakeResult = await typeQueryViaCDP(gapId, WAKE_WORD);
+    if (!wakeResult.success) {
+      return { success: false, output: `Boot failed: CDP could not type wake-up query. Error: ${wakeResult.error}` };
+    }
+    
+    // 2. Wait for panels to initialize
+    console.log(`⏳ [${gapId}] boot — Waiting 15 seconds for AI panels to wake up...`);
+    await delay(15000);
+    
+    // 3. Send the actual research context block
+    console.log(`📝 [${gapId}] boot — Typing main query via CDP: "${contextBlock.substring(0, 80)}..."`);
     const cdpResult = await typeQueryViaCDP(gapId, contextBlock);
     if (!cdpResult.success) {
-      return { success: false, output: `Boot failed: CDP could not type query. Error: ${cdpResult.error}` };
+      return { success: false, output: `Boot failed: CDP could not type main query. Error: ${cdpResult.error}` };
     }
-    console.log(`✅ [${gapId}] boot — Query submitted via CDP. Panels are now generating responses.`);
+    console.log(`✅ [${gapId}] boot — Main query submitted via CDP. Panels are now generating responses.`);
   }
 
   return { success: true, output: 'Boot + query submission completed via CDP.\n=== END OF STEP 0 ===' };
@@ -896,7 +963,12 @@ export async function runStep(gapId: string, step: string): Promise<void> {
            // EXPORT TO DETERMINISTIC FILE STRUCTURE FOR CURSOR (Hybrid Step 7)
            try {
              // 1. Get the final output for Step 6
-             const finalOut = await StepOutput.findOne({ gapId, step: 'step6', validationPassed: true }).sort({ session: 1 });
+             let finalOut = await StepOutput.findOne({ gapId, step: 'step6', validationPassed: true }).sort({ session: 1 });
+             if (!finalOut) {
+               // Fallback to any step 6 output if validation failed but data exists
+               finalOut = await StepOutput.findOne({ gapId, step: 'step6' }).sort({ session: -1 });
+             }
+             
              if (finalOut) {
                // 2. Ensure directory exists
                const projectRoot = path.resolve(__dirname, '../../');
@@ -909,17 +981,33 @@ export async function runStep(gapId: string, step: string): Promise<void> {
                fs.writeFileSync(exportPath, finalContent, 'utf8');
                console.log(`✅ [${gapId}] Saved Step 6 buffer for clipboard injection to ${exportPath}`);
 
-               // 4. Trigger Hybrid Cursor UI Automation (Clipboard Paste)
+               // 4. Trigger Hybrid Cursor UI Automation (Clipboard Paste) via Mutex
                const scriptPath = path.join(projectRoot, 'scripts', 'cursor-deterministic.ps1');
                const command = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -TargetFile "${exportPath}" -GapId "${gapId}"`;
-               console.log(`🚀 [${gapId}] Launching Hybrid Cursor Automation (Clipboard Mode): ${command}`);
-               exec(command, (error, stdout, stderr) => {
-                 if (error) {
-                   console.error(`⚠️ [${gapId}] Hybrid Cursor Automation failed:`, error.message);
-                 } else {
-                   console.log(`✅ [${gapId}] Hybrid Cursor Automation completed successfully.`);
-                 }
+               
+               console.log(`⏳ [${gapId}] Queued for Hybrid Cursor Automation (Waiting for Mutex lock...)`);
+               
+               cursorUiMutex = cursorUiMutex.then(() => {
+                 return new Promise<void>((resolve) => {
+                   console.log(`🚀 [${gapId}] Lock acquired. Launching Hybrid Cursor Automation (Clipboard Mode): ${command}`);
+                   exec(command, (error, stdout, stderr) => {
+                     if (error) {
+                       console.error(`⚠️ [${gapId}] Hybrid Cursor Automation failed:`, error.message);
+                     } else {
+                       console.log(`✅ [${gapId}] Hybrid Cursor Automation completed successfully.`);
+                     }
+                     // Always resolve the promise to release the lock for the next workflow
+                     resolve();
+                   });
+                 });
+               }).catch(err => {
+                 console.error(`⚠️ [global mutex] Unexpected error in ui automation queue:`, err);
                });
+               
+               // Wait for the specific workflow's turn to finish before completing the workflow officially
+               await cursorUiMutex;
+             } else {
+               throw new Error("Cannot run Step 7: No Step 6 output exists yet. Please run Step 6 first.");
              }
            } catch (exportErr: any) {
              console.error(`⚠️ [${gapId}] Failed to export Step 6 for Cursor:`, exportErr.message);

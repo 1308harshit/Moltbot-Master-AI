@@ -44,7 +44,7 @@ export const config = {
   chromeExePath: process.env.CHROME_EXE_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   openclawUserDataDir: process.env.OPENCLAW_CHROME_USER_DATA_DIR || path.join(os.homedir(), '.openclaw', 'browser', 'openclaw', 'user-data'),
   browserOpenCmd: process.env.BROWSER_OPEN_CMD || 'cmd /c start "" "{{CHROME_EXE}}" --remote-debugging-port=18800 --user-data-dir="{{USER_DATA_DIR}}" "chrome-extension://{{EXTENSION_ID}}/chatHub.html"',
-  browserCloseCmd: process.env.BROWSER_CLOSE_CMD || 'powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name=\'chrome.exe\'\\" | Where-Object { $_.CommandLine -like \'*openclaw*\' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"',
+
   extensionId: process.env.SIMPLE_CHAT_HUB_EXT_ID || 'your-extension-id-here',
   cdpPort: parseInt(process.env.CDP_PORT || '18800', 10),
   panelWaitTimeMs: parseInt(process.env.PANEL_WAIT_TIME_MS || '120000', 10),  // 2 minutes default
