@@ -57,3 +57,5 @@ coverage/
 *.rar
 .cache/
 node_modules/.cache/
+
+*Cursor_Research_work

@@ -644,9 +644,14 @@ async function executePanel(
       });
 
       if (!passed && requiresMarker) {
+        const errorMsg = `Validation failed: marker not found in session ${session}`;
+        if (attempt < maxRetries) {
+          console.warn(`⚠️ [${gapId}] ${step} — ${errorMsg}. Triggering retry...`);
+          throw new Error(errorMsg);
+        }
         return {
           success: false, output,
-          error: `Validation failed: marker not found in session ${session}`,
+          error: errorMsg,
         };
       }
 
@@ -962,11 +967,11 @@ export async function runStep(gapId: string, step: string): Promise<void> {
            
            // EXPORT TO DETERMINISTIC FILE STRUCTURE FOR CURSOR (Hybrid Step 7)
            try {
-             // 1. Get the final output for Step 6
-             let finalOut = await StepOutput.findOne({ gapId, step: 'step6', validationPassed: true }).sort({ session: 1 });
+             // 1. Get the final output for Step 5b
+             let finalOut = await StepOutput.findOne({ gapId, step: 'step5b', validationPassed: true }).sort({ session: 1 });
              if (!finalOut) {
-               // Fallback to any step 6 output if validation failed but data exists
-               finalOut = await StepOutput.findOne({ gapId, step: 'step6' }).sort({ session: -1 });
+               // Fallback to any step 5b output if validation failed but data exists
+               finalOut = await StepOutput.findOne({ gapId, step: 'step5b' }).sort({ session: -1 });
              }
              
              if (finalOut) {
@@ -976,10 +981,10 @@ export async function runStep(gapId: string, step: string): Promise<void> {
                fs.mkdirSync(exportDir, { recursive: true });
                
                // 3. Write file with appended prompt (buffer for clipboard)
-               const exportPath = path.join(exportDir, 'output_of_step_6.txt');
+               const exportPath = path.join(exportDir, 'output_of_step_5b.txt');
                const finalContent = `${finalOut.output}\n\nTHE ABOVE IS MY RESEARCH SHARE YOUR VIEW ON THIS`;
                fs.writeFileSync(exportPath, finalContent, 'utf8');
-               console.log(`✅ [${gapId}] Saved Step 6 buffer for clipboard injection to ${exportPath}`);
+               console.log(`✅ [${gapId}] Saved Step 5b buffer for clipboard injection to ${exportPath}`);
 
                // 4. Trigger Hybrid Cursor UI Automation (Clipboard Paste) via Mutex
                const scriptPath = path.join(projectRoot, 'scripts', 'cursor-deterministic.ps1');
@@ -1007,7 +1012,7 @@ export async function runStep(gapId: string, step: string): Promise<void> {
                // Wait for the specific workflow's turn to finish before completing the workflow officially
                await cursorUiMutex;
              } else {
-               throw new Error("Cannot run Step 7: No Step 6 output exists yet. Please run Step 6 first.");
+               throw new Error("Cannot run Step 7: No Step 5b output exists yet. Please run Step 5b first.");
              }
            } catch (exportErr: any) {
              console.error(`⚠️ [${gapId}] Failed to export Step 6 for Cursor:`, exportErr.message);
@@ -1288,6 +1293,7 @@ export async function getWorkflowStatus(gapId: string) {
     gapId: workflow.gapId,
     status: workflow.status,
     currentStep: workflow.currentStep,
+    contextBlock: workflow.contextBlock,
     failureReason: workflow.failureReason,
     failedSession: workflow.failedSession,
     stepStatuses: workflow.stepStatuses,
@@ -1310,7 +1316,7 @@ export async function getWorkflowStatus(gapId: string) {
  */
 export async function listWorkflows() {
   const workflows = await Workflow.find()
-    .select('gapId status currentStep createdAt updatedAt')
+    .select('gapId status currentStep contextBlock createdAt updatedAt')
     .sort({ createdAt: -1 })
     .limit(50)
     .lean();
@@ -1319,6 +1325,7 @@ export async function listWorkflows() {
     gapId: w.gapId,
     status: w.status,
     currentStep: w.currentStep,
+    contextBlock: w.contextBlock,
     createdAt: w.createdAt,
     updatedAt: w.updatedAt,
   }));

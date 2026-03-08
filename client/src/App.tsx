@@ -63,10 +63,10 @@ function App() {
 
   // Hydrate the context block input when a historical workflow is selected
   useEffect(() => {
-    if (workflowData?.contextBlock) {
-      setContextBlock(workflowData.contextBlock);
+    if (activeGapId && workflowData && workflowData.gapId === activeGapId) {
+      setContextBlock(workflowData.contextBlock || '');
     }
-  }, [workflowData?.contextBlock]);
+  }, [activeGapId, workflowData?.gapId, workflowData?.contextBlock]);
 
   const isRunning = workflowData?.status === 'running';
 

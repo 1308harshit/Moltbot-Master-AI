@@ -237,4 +237,11 @@ $FinalPath = Join-Path -Path $TargetDir -ChildPath "final_cursor_response.md"
 Move-Item -Path $exportedFile -Destination $FinalPath -Force
 
 Log "Moved final response to: $FinalPath"
+
+# ==============================
+# CLOSE CURSOR
+# ==============================
+Log "Closing Cursor to prepare for the next workflow..."
+Stop-Process -Name "Cursor" -Force -ErrorAction SilentlyContinue
+
 Log "Done."
