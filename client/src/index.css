@@ -87,6 +87,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-width: 0; /* Prevents flex from expanding beyond grid constraint */
 }
 
 .grid-layout {
@@ -220,6 +221,7 @@ body {
   padding: 1.5rem;
   backdrop-filter: blur(12px);
   transition: border-color var(--transition), box-shadow var(--transition);
+  min-width: 0; /* Ensures children don't push outside card boundaries */
 }
 
 .card:hover {

@@ -68,7 +68,21 @@ const OutputViewer: React.FC<OutputViewerProps> = ({
 
       {/* Step tabs */}
       {availableSteps.length > 1 && (
-        <div className="tabs" style={{ marginBottom: '0.5rem' }}>
+        <div 
+          className="tabs" 
+          style={{ 
+            marginBottom: '0.5rem', 
+            overflowX: 'auto', 
+            flexWrap: 'nowrap',
+            scrollbarWidth: 'none', // Firefox
+            msOverflowStyle: 'none', // IE and Edge
+          }}
+        >
+          <style>{`
+            .tabs::-webkit-scrollbar {
+              display: none;
+            }
+          `}</style>
           {availableSteps.map((step) => {
             const def = STEP_DEFINITIONS.find((d) => d.key === step);
             return (
