@@ -1,0 +1,101 @@
+## 1. Final Executive Summary
+Across all provided panels and both rounds, only **one substantive answer** about “current trends of building SaaS platforms” is available (Round 1, **Tab3 / Grok**). Based strictly on that content, SaaS building in March 2026 is characterized by: **AI-native products with agentic workflows**, growing emphasis on **vertical (industry-specific) SaaS** and **micro-SaaS**, adoption of **API-first composable/modular architectures** (often alongside **low-code/no-code** acceleration), increasing use of **usage-based/hybrid pricing**, and “day-one” requirements for **security, privacy, and compliance**, with product strategy leaning toward **retention and measurable outcomes** over acquisition.  
+The gap research round failed to capture any responses (all tabs showed “\[clean response\]”), so the evidence base remains **single-source** and cannot be triangulated.
+
+## 2. Comprehensive Findings (original + gap research merged)
+### 2.1 Evidence base and coverage (all rounds)
+- **Round 1**
+  - **Tab3 (Grok):** The only panel containing a structured SaaS-trends response.
+  - **Tab1 (ChatGPT):** Off-topic for the SaaS question (war-related headlines/sources).
+  - **Tab4 (Claude):** Off-topic for the SaaS question (India financial snapshot).
+  - **Tabs2/5/6 (Gemini/Perplexity/Qwen):** No extracted content.
+- **Round 2 (Gap Research)**
+  - **Tabs1–6:** All show only **“[clean response]”** (no captured model output).  
+  - This introduces an **operational capture failure** meta-gap: it’s unknown whether models failed to answer, extraction failed, or the query was not executed.
+
+### 2.2 Consolidated trend findings (from Round 1 Tab3 / Grok)
+1) **AI-Native & Agentic AI at the Core**
+- AI positioned as foundational.
+- Shift stated: “copilots” → **production-ready agents** automating workflows.
+- **Workflow orchestration** called essential.
+- Mentions personalization, domain-specific models, and measurable outcomes.
+
+2) **Vertical SaaS (Industry-Specific Solutions)**
+- Shift toward industry-tailored SaaS versus horizontal tools.
+- Rationale given: deeper pain points and specialized workflows.
+
+3) **Micro-SaaS & Niche Tools**
+- Growth of small, focused products built by solo devs/small teams.
+- Often AI-powered; “vertical micro-SaaS” framed as high-potential.
+
+4) **Low-Code/No-Code & Composable Architectures**
+- Low-code/no-code framed as accelerating development (includes an “up to 75% per Gartner” claim in the panel text, not verifiable here).
+- Architecture described as **API-first, composable, modular**, enabling integration and component swapping.
+
+5) **Usage-Based & Flexible Pricing Models**
+- Shift away from flat subscriptions to consumption-based/hybrid pricing.
+- Rationale: aligns cost with value; addresses variable AI-heavy usage.
+
+6) **Security-First, Compliance, & Resilient Design**
+- Security/compliance described as non-negotiable from day one (examples mentioned: GDPR, SOC 2, industry regs).
+- Notes **zero-trust** posture.
+- Mentions event-driven systems and edge computing for performance/scalability/resilience.
+
+7) **Other Notable Shifts**
+- **Mobile-first/responsive** expectations.
+- Some enterprises building internal tools to replace SaaS (cost/customization pressure).
+- Emphasis on **retention & outcomes** over acquisition.
+
+### 2.3 Gap research finding (Round 2)
+- No additional content was captured; therefore:
+  - No corroboration, refinement, or counterpoints were added to the trend list.
+  - Previously identified gaps remain unresolved.
+
+## 3. Integrated Insights
+(Integrated strictly from the above findings; no external additions.)
+
+1) **Outcome-driven automation is positioned as the product core**
+- The agentic/automation framing implies SaaS differentiation is increasingly tied to end-to-end workflow completion and measurable results.
+
+2) **Depth-over-breadth positioning is emphasized**
+- Vertical SaaS + micro-SaaS suggests (as stated) builders are incentivized to own narrow domains deeply rather than compete as general suites.
+
+3) **Composable engineering supports faster iteration and integration**
+- API-first modularity is treated as the enabling layer for swapping components and integrating ecosystems.
+
+4) **Monetization is adapting to variable usage patterns**
+- Usage-based/hybrid pricing is presented as a response to variable consumption, especially for AI-related workloads.
+
+5) **Trust requirements are foundational constraints, not add-ons**
+- Security, privacy, and compliance appear in the trend set as baseline expectations alongside scalability/resilience concerns.
+
+## 4. Final Recommendations
+(Recommendations remain derived from the stated trends, with the added acknowledgment that they are single-source.)
+
+1) **If building AI features, design around orchestrated workflows**
+- Treat “agentic” behavior and orchestration as first-class product/engineering concerns rather than bolt-ons.
+
+2) **Choose a vertical or niche where outcomes are definable**
+- Align product scope to an industry or micro-problem where specialized workflows and measurable impact are feasible.
+
+3) **Adopt API-first composable modularity early**
+- Build for integration and component replaceability to support iteration and customization.
+
+4) **Align pricing with usage/value**
+- Consider consumption-based or hybrid approaches if value and cost scale with usage (as the panel text suggests for AI-heavy SaaS).
+
+5) **Make security/compliance day-one requirements**
+- Treat privacy, compliance readiness, and resilience as foundational architecture constraints.
+
+6) **Optimize for retention via outcomes**
+- Prioritize durable value delivery and measurable results over acquisition-only growth framing.
+
+## 5. Remaining Limitations (if any)
+- **Single-source evidence for SaaS trends:** only Round 1 Tab3 (Grok) contains SaaS trend content; no multi-panel triangulation exists.
+- **Gap round capture failure:** Round 2 provides no extracted outputs and does not indicate whether the issue was query execution, model response absence, or extraction failure.
+- **Unverified claim within the source text:** the “up to 75% per Gartner” low-code/no-code statement is not verifiable from the provided extracted content.
+- **Missing specifics:** no concrete examples, implementation detail for orchestration, explicit stacks, segmentation (SMB vs enterprise), data strategy detail, or deeper GTM guidance beyond retention/outcomes framing.
+
+=== END OF STEP 6 ===
+
+THE ABOVE IS MY RESEARCH SHARE YOUR VIEW ON THIS

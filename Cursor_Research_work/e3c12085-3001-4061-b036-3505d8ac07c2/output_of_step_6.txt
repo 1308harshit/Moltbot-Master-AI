@@ -1,0 +1,68 @@
+## 1. Final Executive Summary
+Across the usable panel content, the consistent finding is that the **queen is more powerful than the king** when “power” is defined as **mobility, board control, and attacking capability**. Both substantive sources (Claude and Perplexity) also distinguish this from **importance**: the **king is indispensable/priceless** because the game ends if it is checkmated, even though it has limited movement. Gap research did not materially change the conclusion; it mainly clarified that other panels (ChatGPT, Gemini, Grok, Qwen) still do not provide usable, on-topic answers in the extracted text, limiting triangulation beyond Claude + Perplexity.
+
+## 2. Comprehensive Findings (original + gap research merged)
+### 2.1 Source coverage and usability (merged view)
+- **Usable for analysis (substantive chess answers):**
+  - **Tab4 (Claude):** full explanatory answer comparing queen vs king.
+  - **Tab5 (Perplexity):** full explanatory answer plus additional claims/nuance.
+- **Not usable / not responsive for the research question (based on extracted content):**
+  - **Tab1 (ChatGPT):** shows only “Paul MorphyAdolf Anderssen” (does not answer king vs queen power).
+  - **Tab2 (Gemini):** blank (“[clean response]”).
+  - **Tab3 (Grok):** “No response.”
+  - **Tab6 (Qwen):** “Thinking...” (no answer content).
+
+### 2.2 What Claude contributes (Tab4)
+- **Direct claim:** the queen is “by far the more powerful piece.”
+- **Rationale:** queen can move any number of squares **horizontally, vertically, or diagonally**, making her versatile and dangerous.
+- **Valuation heuristic:** queen valued at about **9 points**.
+- **King framing:** king has no point value (“priceless”) because losing it ends the game; king moves only **one square** in any direction.
+- **Key conceptual distinction:** **importance (king)** vs **capability/power (queen)**.
+
+### 2.3 What Perplexity contributes (Tab5)
+**Core (aligned with Claude):**
+- **Direct claim:** queen is more powerful.
+- **Definition of “power”:** mobility and attacking capability.
+- **Movement comparison:** queen combines rook + bishop movement; king moves one square.
+- **King’s importance:** game ends if checkmated.
+
+**Additional material introduced in gap round (Perplexity-only within provided text):**
+- **Strategic/tactical add-ons:** queen “executes forks effectively”; “queens are often sacrificed.”
+- **Illustrative statements:** queen forking multiple pieces; mentions famous games as sacrifice examples.
+- **Game-phase nuance:** opening/middlegame emphasis vs endgame “king activates” and a “value ~4 points” claim.
+- **Meta-claims:** asserts other models “typically align,” while also stating “No direct quotes found.”
+
+### 2.4 Evidence-weighting / claim tiering (merged)
+- **Tier 1 (multi-source within provided text: Claude + Perplexity)**
+  - Queen is more powerful by **mobility/attacking reach**.
+  - King is most important due to **checkmate win condition**.
+  - “Power vs importance” framing resolves ambiguity in the question.
+- **Tier 2 (single-source within provided text: Perplexity-only)**
+  - Fork effectiveness, queen sacrifices, specific example references.
+  - Game-phase nuance and the “king ~4 points” endgame valuation framing.
+  - Statements about other model alignment (especially limited by the explicit “No direct quotes found”).
+
+## 3. Integrated Insights
+- **Best consolidated interpretation:** The question “who is more powerful?” is best answered by explicitly defining “power” as **practical board influence** (mobility + attack). Under that definition, **queen** is the more powerful piece.
+- **Complementary clarification:** The **king** is not “powerful” in movement terms, but is **most important** because the entire game objective is avoiding checkmate.
+- **What gap research added:** Not new consensus evidence, but improved clarity on:
+  - which panels are non-contributory,
+  - which claims are consensus vs Perplexity-only expansions,
+  - and the continued inability to claim broad multi-model agreement from the provided extracts.
+
+## 4. Final Recommendations
+1. **Use a two-axis answer format (most accurate given the evidence):**
+   - **Most powerful by capability/mobility:** **Queen**
+   - **Most important by win condition:** **King**
+2. **Define “power” explicitly** in any final user-facing response to prevent definitional confusion (capability vs game-importance).
+3. **Treat Perplexity-only expansions as optional context**, not as established consensus findings, unless additional independent panel outputs (or directly quoted evidence) are provided.
+4. **If further triangulation is required:** obtain clean, on-topic outputs for ChatGPT/Gemini/Grok/Qwen; current extracts do not support cross-model comparison.
+
+## 5. Remaining Limitations (if any)
+- **Triangulation limitation:** Only two tabs (Claude, Perplexity) contain substantive answers; other tabs are blank, non-responsive, off-topic, or uninterpretable.
+- **Single-source add-ons:** Fork/sacrifice examples and game-phase valuation statements appear only in Perplexity’s text and are not corroborated by other provided panels.
+- **Evidence visibility:** Perplexity references “verified support” and mentions examples, but the extracted content does not include underlying supporting detail; additionally, it states “No direct quotes found” for other model alignment.
+
+=== END OF STEP 6 ===
+
+THE ABOVE IS MY RESEARCH SHARE YOUR VIEW ON THIS

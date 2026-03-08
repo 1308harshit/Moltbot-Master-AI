@@ -61,6 +61,13 @@ function App() {
     };
   }, []);
 
+  // Hydrate the context block input when a historical workflow is selected
+  useEffect(() => {
+    if (workflowData?.contextBlock) {
+      setContextBlock(workflowData.contextBlock);
+    }
+  }, [workflowData?.contextBlock]);
+
   const isRunning = workflowData?.status === 'running';
 
   const startWorkflow = async () => {
@@ -151,15 +158,44 @@ function App() {
               <div className="card">
                 <div className="card-title">
                   <span className="icon">🚀</span>
-                  Start Workflow
+                  Launch Area
                 </div>
-                <button
-                  className="btn btn-primary"
-                  onClick={startWorkflow}
-                  disabled={isRunning || !contextBlock.trim()}
-                >
-                  {isRunning ? '⏳ Running...' : '🚀 Start New Workflow'}
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setActiveGapId(null);
+                      startWorkflow();
+                    }}
+                    disabled={isRunning || !contextBlock.trim()}
+                  >
+                    {isRunning && !activeGapId ? '⏳ Running...' : '🚀 Start New Workflow'}
+                  </button>
+                  
+                  {activeGapId && workflowData && workflowData.status !== 'running' && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={startWorkflow}
+                      disabled={!contextBlock.trim()}
+                      style={{ backgroundColor: 'var(--bg-card-hover)' }}
+                    >
+                      🔄 Rerun This Context
+                    </button>
+                  )}
+                  
+                  {activeGapId && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setActiveGapId(null);
+                        setContextBlock('');
+                      }}
+                      style={{ border: '1px solid var(--border-color)', backgroundColor: 'transparent' }}
+                    >
+                      ➕ New Blank Form
+                    </button>
+                  )}
+                </div>
                 {!contextBlock.trim() && (
                   <p style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                     ⚠️ Enter a context block to start

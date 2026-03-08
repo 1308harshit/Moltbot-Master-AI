@@ -23,9 +23,10 @@ yarn-error.log*
 build_errors.txt
 probe_log.txt
 
-# Browser profiles (large, user-specific data)
+# Browser profiles & Chrome for Testing (large, user-specific)
 moltbot-browser-profile/
 moltbots-browser-profile/
+chrome/
 
 # Screenshots
 screenshots/
@@ -46,3 +47,13 @@ desktop.ini
 
 # Misc
 *.tsbuildinfo
+.eslintcache
+.parcel-cache
+.turbo
+.coverage
+coverage/
+*.zip
+*.tar.gz
+*.rar
+.cache/
+node_modules/.cache/
