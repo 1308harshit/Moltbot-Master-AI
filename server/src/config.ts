@@ -47,7 +47,7 @@ export const config = {
 
   extensionId: process.env.SIMPLE_CHAT_HUB_EXT_ID || 'your-extension-id-here',
   cdpPort: parseInt(process.env.CDP_PORT || '18800', 10),
-  panelWaitTimeMs: parseInt(process.env.PANEL_WAIT_TIME_MS || '120000', 10),  // 2 minutes default
+  panelWaitTimeMs: parseInt(process.env.PANEL_WAIT_TIME_MS || '180000', 10),  // 3 minutes default
 } as const;
 
 // Prompt placeholders — opinionated defaults, editable from frontend

@@ -966,12 +966,12 @@ export async function runStep(gapId: string, step: string): Promise<void> {
            await Workflow.updateOne({ gapId }, { status: 'completed', currentStep: 'done' });
            
            // EXPORT TO DETERMINISTIC FILE STRUCTURE FOR CURSOR (Hybrid Step 7)
-           try {
-             // 1. Get the final output for Step 5b
-             let finalOut = await StepOutput.findOne({ gapId, step: 'step5b', validationPassed: true }).sort({ session: 1 });
+            try {
+             // 1. Get the final output for Step 4b
+             let finalOut = await StepOutput.findOne({ gapId, step: 'step4b', validationPassed: true }).sort({ session: 1 });
              if (!finalOut) {
-               // Fallback to any step 5b output if validation failed but data exists
-               finalOut = await StepOutput.findOne({ gapId, step: 'step5b' }).sort({ session: -1 });
+               // Fallback to any step 4b output if validation failed but data exists
+               finalOut = await StepOutput.findOne({ gapId, step: 'step4b' }).sort({ session: -1 });
              }
              
              if (finalOut) {
@@ -981,10 +981,10 @@ export async function runStep(gapId: string, step: string): Promise<void> {
                fs.mkdirSync(exportDir, { recursive: true });
                
                // 3. Write file with appended prompt (buffer for clipboard)
-               const exportPath = path.join(exportDir, 'output_of_step_5b.txt');
+               const exportPath = path.join(exportDir, 'output_of_step_4b.txt');
                const finalContent = `${finalOut.output}\n\nTHE ABOVE IS MY RESEARCH SHARE YOUR VIEW ON THIS`;
                fs.writeFileSync(exportPath, finalContent, 'utf8');
-               console.log(`✅ [${gapId}] Saved Step 5b buffer for clipboard injection to ${exportPath}`);
+               console.log(`✅ [${gapId}] Saved Step 4b buffer for clipboard injection to ${exportPath}`);
 
                // 4. Trigger Hybrid Cursor UI Automation (Clipboard Paste) via Mutex
                const scriptPath = path.join(projectRoot, 'scripts', 'cursor-deterministic.ps1');
@@ -1012,10 +1012,10 @@ export async function runStep(gapId: string, step: string): Promise<void> {
                // Wait for the specific workflow's turn to finish before completing the workflow officially
                await cursorUiMutex;
              } else {
-               throw new Error("Cannot run Step 7: No Step 5b output exists yet. Please run Step 5b first.");
+               throw new Error("Cannot run Step 7: No Step 4b output exists yet. Please run Step 4b first.");
              }
            } catch (exportErr: any) {
-             console.error(`⚠️ [${gapId}] Failed to export Step 6 for Cursor:`, exportErr.message);
+             console.error(`⚠️ [${gapId}] Failed to export Step 4b for Cursor:`, exportErr.message);
            }
            
            await closeBrowser(gapId);

@@ -132,7 +132,7 @@ Start-Sleep -Milliseconds 2000
 
 Log "Pasting prompt from clipboard (Ctrl+V)..."
 [System.Windows.Forms.SendKeys]::SendWait("^v")
-Start-Sleep -Milliseconds 1500
+Start-Sleep -Milliseconds 5000
 
 Log "Submitting prompt..."
 [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
