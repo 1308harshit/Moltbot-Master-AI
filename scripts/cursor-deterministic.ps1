@@ -1,6 +1,6 @@
 param(
     [string]$TargetFile,
-    [string]$GapId,
+    [string]$FolderName,
     [string]$Prompt = "Please review this document and act upon the prompt at the very bottom."
 )
 
@@ -17,8 +17,8 @@ function Log($msg) {
     Write-Host "$timestamp - $msg"
 }
 
-if (-not $TargetFile -or -not $GapId) {
-    Log "Error: TargetFile and GapId are required parameters."
+if (-not $TargetFile -or -not $FolderName) {
+    Log "Error: TargetFile and FolderName are required parameters."
     exit 1
 }
 
@@ -228,7 +228,7 @@ Log "File saved at: $exportedFile"
 # MOVE FILE TO RESEARCH DIR
 # ==============================
 
-$TargetDir = "D:\Freelancing\02-02-2026_MoltBot_Browser\Cursor_Research_work\$GapId"
+$TargetDir = "D:\Freelancing\02-02-2026_MoltBot_Browser\Cursor_Research_work\$FolderName"
 if (-not (Test-Path -Path $TargetDir)) {
     New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
 }

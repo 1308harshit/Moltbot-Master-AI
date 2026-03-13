@@ -977,7 +977,16 @@ export async function runStep(gapId: string, step: string): Promise<void> {
              if (finalOut) {
                // 2. Ensure directory exists
                const projectRoot = path.resolve(__dirname, '../../');
-               const exportDir = path.join(projectRoot, 'Cursor_Research_work', gapId);
+               
+               // Create a safer and more readable folder name from the context block
+               const safeContext = (workflow.contextBlock || 'research')
+                 .substring(0, 40)
+                 .replace(/[^a-zA-Z0-9_\-]/g, '_')
+                 .replace(/_+/g, '_')
+                 .replace(/_$/, '');
+               const folderName = `${safeContext}_${gapId.substring(0, 6)}`;
+               
+               const exportDir = path.join(projectRoot, 'Cursor_Research_work', folderName);
                fs.mkdirSync(exportDir, { recursive: true });
                
                // 3. Write file with appended prompt (buffer for clipboard)
@@ -988,7 +997,7 @@ export async function runStep(gapId: string, step: string): Promise<void> {
 
                // 4. Trigger Hybrid Cursor UI Automation (Clipboard Paste) via Mutex
                const scriptPath = path.join(projectRoot, 'scripts', 'cursor-deterministic.ps1');
-               const command = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -TargetFile "${exportPath}" -GapId "${gapId}"`;
+               const command = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -TargetFile "${exportPath}" -FolderName "${folderName}"`;
                
                console.log(`⏳ [${gapId}] Queued for Hybrid Cursor Automation (Waiting for Mutex lock...)`);
                
